@@ -28,7 +28,7 @@ class Blockchain:
         Cria o bloco gênesis, que é o primeiro bloco da cadeia.
         Ele não tem transações e seu hash anterior é '0'.
         """
-        genesis_block = Block(index=0, transactions=[], previous_hash='0')
+        genesis_block = Block(index=0, transactions=[], previous_hash='0', timestamp=0.0)
         genesis_block.mine_block(self.difficulty)
         self.chain.append(genesis_block)
 
