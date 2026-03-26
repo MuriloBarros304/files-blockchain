@@ -8,7 +8,7 @@ class Blockchain:
     def __init__(self) -> None:
         self.chain: list[Block] = []
         self.mempool: list[Transaction] = [] # Transações aguardando inclusão em um bloco
-        self._difficulty: int = 2
+        self._difficulty: int = 6
         self.create_genesis_block() # Primeiro bloco que deve ser criado
 
     @property

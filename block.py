@@ -48,11 +48,22 @@ class Block:
         return hash_obj.hexdigest()
     
     def generate_coinbase_transaction(self, miner_address: str, reward_amount: float) -> Transaction:
-        """Gera uma transação de recompensa para o minerador que incluir este bloco na cadeia."""
-        return Transaction(
+        """
+        Gera uma transação de recompensa para o minerador que incluir este bloco na cadeia.
+        Args:
+            miner_address (str): A chave pública do minerador que irá receber a recompensa.
+            reward_amount (float): O valor da recompensa a ser concedida ao minerador.
+        Returns:
+            Transaction: Uma transação representando a recompensa do minerador.
+        """
+        t = Transaction(
             sender_public_key='SYSTEM', receiver_public_key=miner_address,
             file_uri='', encrypted_access_key='', signature=None, reward=reward_amount
         )
+        
+        t.timestamp = self.timestamp
+        
+        return t
     
     def mine_block(self, difficulty: int, miner_address: str) -> None:
         """
