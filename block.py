@@ -54,13 +54,18 @@ class Block:
             file_uri='', encrypted_access_key='', signature=None, reward=reward_amount
         )
     
-    def mine_block(self, difficulty: int) -> None:
+    def mine_block(self, difficulty: int, miner_address: str) -> None:
         """
         Realiza o processo de mineração do bloco, ajustando o nonce até que o hash do bloco atenda à condição de dificuldade.
         Args:
             difficulty (int): O número de zeros iniciais que o hash do bloco deve conter para ser considerado válido.
+            miner_address (str): A chave pública do minerador que irá incluir este bloco na cadeia.
         """
-        coinbase_tx = self.generate_coinbase_transaction(miner_address='SYSTEM', reward_amount=10.0)
+        
+        total_fee = sum(t.fee for t in self.transactions)
+        reward_amount = 5.0 + total_fee # Recompensa base de 5.0 mais as taxas de transação acumuladas
+
+        coinbase_tx = self.generate_coinbase_transaction(miner_address=miner_address, reward_amount=reward_amount)
         self.transactions.insert(0, coinbase_tx)  # A transação de recompensa deve ser a primeira do bloco
 
         target = '0' * difficulty

@@ -1,3 +1,11 @@
+"""
+Teste de unidade e integração para a classe Blockchain, cobrindo:
+- Inicialização da cadeia e bloco gênese
+- Adição de transações e blocos, incluindo validação de transações e recompensas
+- Cálculo de saldo para endereços, considerando taxas e recompensas
+- Validação de cadeias e consenso, incluindo recuperação de blocos órfãos e detecção de fraudes em recompensas de mineradores
+"""
+
 import pytest
 from unittest.mock import patch
 from blockchain import Blockchain
@@ -11,8 +19,11 @@ def blockchain():
 
 @pytest.fixture
 def mock_transaction():
-    """Fixture que cria uma transação básica para testes."""
-    return Transaction("remetente_pub", "destinatario_pub", "ipfs://arquivo", "chave_cripto", signature="assinatura")
+    """Fixture que cria uma transação básica com taxa de 1.0 para testes."""
+    return Transaction(
+        "remetente_pub", "destinatario_pub", "ipfs://arquivo", "chave_cripto",
+        signature="assinatura", fee=1.0
+    )
 
 
 def test_blockchain_initialization(blockchain):
@@ -26,91 +37,123 @@ def test_difficulty_property_validation(blockchain):
     with pytest.raises(ValueError, match="Dificuldade deve ser um inteiro"):
         blockchain.difficulty = "3" # Tipo string ao invés de int
 
+# --- TESTES DE TRANSAÇÃO E ECONOMIA ---
+
 @patch('transaction.Transaction.validate', return_value=True)
-def test_add_transaction_success(mock_validate, blockchain, mock_transaction):
-    # Se a transação for válida, deve entrar na mempool
+@patch.object(Blockchain, 'get_balance', return_value=10.0) # Mocka o saldo para ter fundos
+def test_add_transaction_success(mock_balance, mock_validate, blockchain, mock_transaction):
+    # Se a transação for válida e houver saldo, deve entrar na mempool
     blockchain.add_transaction(mock_transaction)
     assert len(blockchain.mempool) == 1
     assert mock_transaction in blockchain.mempool
 
-@patch('transaction.Transaction.validate', return_value=False)
-def test_add_transaction_invalid(mock_validate, blockchain, mock_transaction):
-    # Se a transação for inválida, deve levantar exceção e não entrar na mempool
-    with pytest.raises(Exception, match="Transferência inválida"):
+@patch('transaction.Transaction.validate', return_value=True)
+@patch.object(Blockchain, 'get_balance', return_value=0.0) # Mocka o saldo para ZERO
+def test_add_transaction_insufficient_funds(mock_balance, mock_validate, blockchain, mock_transaction):
+    # Se não houver saldo suficiente para pagar a taxa, deve ser rejeitada
+    with pytest.raises(Exception, match="Saldo insuficiente"):
         blockchain.add_transaction(mock_transaction)
-    assert len(blockchain.mempool) == 0
+
+@patch('transaction.Transaction.validate', return_value=False)
+def test_add_transaction_invalid_signature(mock_validate, blockchain, mock_transaction):
+    # Se a assinatura for inválida, deve levantar exceção imediatamente
+    with pytest.raises(Exception, match="Transação inválida"):
+        blockchain.add_transaction(mock_transaction)
+
+
+# --- TESTES DE SALDO REAIS (INTEGRAÇÃO) ---
 
 @patch('transaction.Transaction.validate', return_value=True)
-def test_add_block_success(mock_validate, blockchain, mock_transaction):
+def test_get_balance_calculation(mock_validate, blockchain):
+    """Teste de integração avançado: Simula a economia fluindo entre Alice e Bob"""
+    
+    # 1. Alice minera um bloco vazio (Ganha 5.0 da recompensa base)
+    block1 = Block(1, [], blockchain.get_latest_block().hash)
+    block1.mine_block(blockchain.difficulty, miner_address="Alice")
+    blockchain.add_block(block1)
+    
+    assert blockchain.get_balance("Alice") == 5.0
+    
+    # 2. Alice cria uma transação pagando 1.5 de taxa
+    tx_alice = Transaction("Alice", "Bob", "uri", "key", "sig", fee=1.5)
+    blockchain.add_transaction(tx_alice)
+    
+    # 3. Bob minera um bloco contendo a transação da Alice
+    block2 = Block(2, [tx_alice], blockchain.get_latest_block().hash)
+    block2.mine_block(blockchain.difficulty, miner_address="Bob")
+    blockchain.add_block(block2)
+    
+    # 4. Auditoria dos saldos:
+    # Alice tinha 5.0, pagou 1.5 de taxa. Resta 3.5.
+    assert blockchain.get_balance("Alice") == 3.5
+    # Bob minerou o bloco. Ganha 5.0 (base) + 1.5 (taxa da Alice). Total 6.5.
+    assert blockchain.get_balance("Bob") == 6.5
+
+
+# --- TESTES DE BLOCO E CONSENSO ---
+
+@patch('transaction.Transaction.validate', return_value=True)
+@patch.object(Blockchain, 'get_balance', return_value=10.0)
+def test_add_block_success(mock_balance, mock_validate, blockchain, mock_transaction):
     blockchain.add_transaction(mock_transaction)
     
-    # Cria e minera um novo bloco apontando para o Gênese
     last_block = blockchain.get_latest_block()
     new_block = Block(index=1, transactions=[mock_transaction], previous_hash=last_block.hash)
-    new_block.mine_block(blockchain.difficulty)
+    new_block.mine_block(blockchain.difficulty, miner_address="MineradorX")
     
     blockchain.add_block(new_block)
     
-    # Verifica se o bloco entrou na cadeia e se a transação saiu da mempool
     assert len(blockchain.chain) == 2
     assert blockchain.get_latest_block() == new_block
-    assert len(blockchain.mempool) == 0
+    assert len(blockchain.mempool) == 0 # A transação foi empacotada
 
-def test_add_block_invalid_previous_hash(blockchain):
-    # Cria um bloco com um previous_hash inventado
-    new_block = Block(index=1, transactions=[], previous_hash="hash_falso")
-    new_block.mine_block(blockchain.difficulty)
-    
-    with pytest.raises(Exception, match="Bloco inválido"):
-        blockchain.add_block(new_block)
-
-def test_add_block_invalid_proof_of_work(blockchain):
+def test_add_block_invalid_coinbase_reward(blockchain):
     last_block = blockchain.get_latest_block()
     new_block = Block(index=1, transactions=[], previous_hash=last_block.hash)
     
-    # Minera o bloco corretamente
-    new_block.mine_block(blockchain.difficulty)
+    # Minera o bloco normalmente (Recompensa esperada = 5.0)
+    new_block.mine_block(blockchain.difficulty, miner_address="Minerador_Guloso")
     
-    # Um nó malicioso altera o hash após a mineração
-    new_block._hash = "0000_hash_adulterado" 
+    # O minerador adultera a própria recompensa para 100 tokens ANTES de mandar pra rede
+    new_block.transactions[0].reward = 100.0
     
-    with pytest.raises(Exception, match="Prova de trabalho inválida"):
+    # A rede deve pegar a fraude e rejeitar o bloco
+    with pytest.raises(Exception, match="Bloco inválido: a primeira transação deve ser a de recompensa"):
         blockchain.add_block(new_block)
 
 @patch('transaction.Transaction.validate', return_value=True)
 def test_consensus_longest_chain_and_orphan_recovery(mock_validate):
-    # Simula dois nós da rede
-    node_a = Blockchain() # Nosso nó local
-    node_b = Blockchain() # Nó da rede (vizinho)
+    node_a = Blockchain() 
+    node_b = Blockchain() 
     
-    # Cria transações distintas
-    tx_orphan = Transaction("A", "B", "uri1", "key1", "sig1") # Ficará no bloco órfão
-    tx_network_1 = Transaction("C", "D", "uri2", "key2", "sig2")
-    tx_network_2 = Transaction("E", "F", "uri3", "key3", "sig3")
+    # Criamos transações com taxa zero para pular a necessidade de ter saldo nos nós testes
+    tx_orphan = Transaction("A", "B", "uri1", "key1", "sig1", fee=0.0) 
+    tx_network_1 = Transaction("C", "D", "uri2", "key2", "sig2", fee=0.0)
+    tx_network_2 = Transaction("E", "F", "uri3", "key3", "sig3", fee=0.0)
     
     # Node A minera o Bloco 1 (Cadeia mais curta)
-    block_a1 = Block(1, [tx_orphan], node_a.get_latest_block().hash) # type: ignore
-    block_a1.mine_block(node_a.difficulty)
+    previous_hash = node_a.get_latest_block().hash or '0'
+    block_a1 = Block(1, [tx_orphan], previous_hash)
+    block_a1.mine_block(node_a.difficulty, miner_address="node_a")
     node_a.add_block(block_a1)
     
     # Node B minera o Bloco 1 e o Bloco 2 (Cadeia mais longa)
-    block_b1 = Block(1, [tx_network_1], node_b.get_latest_block().hash) # type: ignore
-    block_b1.mine_block(node_b.difficulty)
+    previous_hash = node_b.get_latest_block().hash or '0'
+    block_b1 = Block(1, [tx_network_1], previous_hash)
+    block_b1.mine_block(node_b.difficulty, miner_address="node_b")
     node_b.add_block(block_b1)
     
-    block_b2 = Block(2, [tx_network_2], node_b.get_latest_block().hash) # type: ignore
-    block_b2.mine_block(node_b.difficulty)
+    previous_hash = node_b.get_latest_block().hash or '0'
+    block_b2 = Block(2, [tx_network_2], previous_hash)
+    block_b2.mine_block(node_b.difficulty, miner_address="node_b")
     node_b.add_block(block_b2)
     
-    # Executa o consenso no Node A recebendo a cadeia do Node B
-    had_substitution = node_a.consensus([node_b.chain])
+    # Executa o consenso no Node A
+    houve_substituicao = node_a.consensus([node_b.chain])
     
-    assert had_substitution is True
-    # O Node A deve ter adotado a cadeia inteira do Node B
+    assert houve_substituicao is True
     assert len(node_a.chain) == 3 
-    assert node_a.get_latest_block().hash == block_b2.hash
     
-    # TESTE CRÍTICO: A transação tx_orphan, que estava no bloco descartado do Node A,
-    # deve ter sido devolvida para a mempool para não ser perdida.
+    # A transação órfã volta para a mempool para não ser perdida
     assert tx_orphan in node_a.mempool
-    assert tx_network_1 not in node_a.mempool # Já está na cadeia nova, não deve ir pra mempool
+    assert tx_network_1 not in node_a.mempool

@@ -29,7 +29,7 @@ class Blockchain:
         Ele não tem transações e seu hash anterior é '0'.
         """
         genesis_block = Block(index=0, transactions=[], previous_hash='0', timestamp=0.0)
-        genesis_block.mine_block(self.difficulty)
+        genesis_block.mine_block(self.difficulty, miner_address='SYSTEM')
         self.chain.append(genesis_block)
 
     def get_latest_block(self) -> Block:
@@ -48,10 +48,36 @@ class Blockchain:
         Raises:
             Exception: Se a transação for inválida.
         """
-        if transaction.validate():
-            self.mempool.append(transaction)
-        else:
-            raise Exception("Transferência inválida")
+        tax = transaction.reward + transaction.fee
+        try:
+            transaction.validate()
+            if self.get_balance(transaction.sender) >= tax:
+                self.mempool.append(transaction)
+            else:
+                raise Exception("Saldo insuficiente para cobrir a recompensa e a taxa da transação")
+        except Exception as e:
+            raise Exception(f"Transação inválida: {e}")
+        
+    def get_balance(self, public_key: str) -> float:
+        """
+        Calcula o saldo de um usuário com base nas transações presentes na cadeia.
+        Args:
+            public_key (str): A chave pública do usuário para o qual o saldo deve ser calculado.
+        Returns:
+            float: O saldo do usuário.
+        """
+        balance = 0.0
+
+        for block in self.chain:
+            for transaction in block.transactions:
+                # Se for coinbase (recompensa para mineradores), o destinatário recebe a recompensa,
+                # Se não for coinbase, o destinatário recebe 0.0, mas o remetente perde a taxa da transação
+                if transaction.receiver == public_key:
+                    balance += transaction.reward # Recebe a recompensa da transação
+                if transaction.sender == public_key:
+                    balance -= transaction.fee # Perde a taxa da transação
+        
+        return balance
         
     def proof_of_work(self, block: Block) -> bool:
         """
@@ -85,11 +111,20 @@ class Blockchain:
             Exception: Se o bloco for inválido.
         """
         if self.get_latest_block().hash != block.previous_hash:
-            raise Exception("Bloco inválido")
+            raise Exception("Bloco inválido: hash anterior não corresponde")
         
         if not self.proof_of_work(block):
             raise Exception("Prova de trabalho inválida")
+
+        rewards = [t for t in block.transactions if t.sender == 'SYSTEM']
         
+        if len(rewards) != 1:
+            raise Exception("Bloco inválido: deve haver exatamente uma transação de recompensa.")
+
+        taxes = sum(t.fee for t in block.transactions)
+        if block.transactions[0].sender != 'SYSTEM' or block.transactions[0].reward != (5.0 + taxes):
+            raise Exception(f"Bloco inválido: a primeira transação deve ser a de recompensa ({5.0 + taxes}).")
+
         for transaction in block.transactions:
             if not transaction.validate():
                 raise Exception(
@@ -125,6 +160,18 @@ class Blockchain:
             for transaction in current.transactions:
                 if not transaction.validate():
                     return False
+                
+            # Verifica se as transações deste bloco já estão presentes em blocos anteriores, o que não deveria acontecer
+            for b in chain[:i]:
+                for t in b.transactions:
+                    if t in current.transactions:
+                        return False
+        
+        # Verifica se as transações de recompensa para mineradores estão corretas
+        for block in chain[1:]: # Começa do bloco 1, pois o bloco 0 é o gênesis e não tem transações
+            taxes = sum(t.fee for t in block.transactions)
+            if block.transactions[0].sender != 'SYSTEM' or block.transactions[0].reward != (5.0 + taxes):
+                return False
         
         return True
 
@@ -142,6 +189,7 @@ class Blockchain:
             if len(other) > len(longest_chain) and self.validate_chain(other):
                 longest_chain = other
 
+        # Se a cadeia mais longa encontrada for diferente da cadeia atual, substitui a cadeia atual pela mais longa
         if longest_chain != self.chain:
             orphan_blocks = [b for b in self.chain if b not in longest_chain] # Blocos que estão na cadeia mais curta mas não estão na mais longa
             all_transactions_in_longest = [t for b in longest_chain for t in b.transactions] # Transações que já estão na cadeia mais longa
