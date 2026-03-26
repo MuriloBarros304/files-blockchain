@@ -14,7 +14,7 @@ class Block:
         self._index: int = index
         self.transactions: list[Transaction] = transactions
         self._previous_hash: str = previous_hash
-        self.timestamp: float = timestamp or time.time()
+        self.timestamp: float = timestamp if timestamp is not None else time.time()
         self.nonce: int = nonce
         self._hash: str | None = None
         self.transaction_hashes = ''.join(tx.generate_hash() for tx in self.transactions)
@@ -47,13 +47,25 @@ class Block:
 
         return hash_obj.hexdigest()
     
+    def generate_coinbase_transaction(self, miner_address: str, reward_amount: float) -> Transaction:
+        """Gera uma transação de recompensa para o minerador que incluir este bloco na cadeia."""
+        return Transaction(
+            sender_public_key='SYSTEM', receiver_public_key=miner_address,
+            file_uri='', encrypted_access_key='', signature=None, reward=reward_amount
+        )
+    
     def mine_block(self, difficulty: int) -> None:
         """
         Realiza o processo de mineração do bloco, ajustando o nonce até que o hash do bloco atenda à condição de dificuldade.
         Args:
             difficulty (int): O número de zeros iniciais que o hash do bloco deve conter para ser considerado válido.
         """
+        coinbase_tx = self.generate_coinbase_transaction(miner_address='SYSTEM', reward_amount=10.0)
+        self.transactions.insert(0, coinbase_tx)  # A transação de recompensa deve ser a primeira do bloco
+
         target = '0' * difficulty
+
+        self.transaction_hashes = ''.join(tx.generate_hash() for tx in self.transactions)
 
         while self.generate_hash()[:difficulty] != target:
             self.nonce += 1

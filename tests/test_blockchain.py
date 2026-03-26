@@ -103,9 +103,9 @@ def test_consensus_longest_chain_and_orphan_recovery(mock_validate):
     node_b.add_block(block_b2)
     
     # Executa o consenso no Node A recebendo a cadeia do Node B
-    houve_substituicao = node_a.consensus([node_b.chain])
+    had_substitution = node_a.consensus([node_b.chain])
     
-    assert houve_substituicao is True
+    assert had_substitution is True
     # O Node A deve ter adotado a cadeia inteira do Node B
     assert len(node_a.chain) == 3 
     assert node_a.get_latest_block().hash == block_b2.hash
