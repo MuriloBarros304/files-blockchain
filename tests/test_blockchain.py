@@ -39,7 +39,7 @@ def test_difficulty_property_validation(blockchain):
 
 # --- TESTES DE TRANSAÇÃO E ECONOMIA ---
 
-@patch('transaction.Transaction.validate', return_value=True)
+@patch('core.transaction.Transaction.validate', return_value=True)
 @patch.object(Blockchain, 'get_balance', return_value=10.0) # Mocka o saldo para ter fundos
 def test_add_transaction_success(mock_balance, mock_validate, blockchain, mock_transaction):
     # Se a transação for válida e houver saldo, deve entrar na mempool
@@ -47,14 +47,14 @@ def test_add_transaction_success(mock_balance, mock_validate, blockchain, mock_t
     assert len(blockchain.mempool) == 1
     assert mock_transaction in blockchain.mempool
 
-@patch('transaction.Transaction.validate', return_value=True)
+@patch('core.transaction.Transaction.validate', return_value=True)
 @patch.object(Blockchain, 'get_balance', return_value=0.0) # Mocka o saldo para ZERO
 def test_add_transaction_insufficient_funds(mock_balance, mock_validate, blockchain, mock_transaction):
     # Se não houver saldo suficiente para pagar a taxa, deve ser rejeitada
     with pytest.raises(Exception, match="Saldo insuficiente"):
         blockchain.add_transaction(mock_transaction)
 
-@patch('transaction.Transaction.validate', return_value=False)
+@patch('core.transaction.Transaction.validate', return_value=False)
 def test_add_transaction_invalid_signature(mock_validate, blockchain, mock_transaction):
     # Se a assinatura for inválida, deve levantar exceção imediatamente
     with pytest.raises(Exception, match="Transação inválida"):
@@ -63,7 +63,7 @@ def test_add_transaction_invalid_signature(mock_validate, blockchain, mock_trans
 
 # --- TESTES DE SALDO REAIS (INTEGRAÇÃO) ---
 
-@patch('transaction.Transaction.validate', return_value=True)
+@patch('core.transaction.Transaction.validate', return_value=True)
 def test_get_balance_calculation(mock_validate, blockchain):
     """Teste de integração avançado: Simula a economia fluindo entre Alice e Bob"""
     
@@ -92,7 +92,7 @@ def test_get_balance_calculation(mock_validate, blockchain):
 
 # --- TESTES DE BLOCO E CONSENSO ---
 
-@patch('transaction.Transaction.validate', return_value=True)
+@patch('core.transaction.Transaction.validate', return_value=True)
 @patch.object(Blockchain, 'get_balance', return_value=10.0)
 def test_add_block_success(mock_balance, mock_validate, blockchain, mock_transaction):
     blockchain.add_transaction(mock_transaction)
@@ -121,7 +121,7 @@ def test_add_block_invalid_coinbase_reward(blockchain):
     with pytest.raises(Exception, match="Bloco inválido: a primeira transação deve ser a de recompensa"):
         blockchain.add_block(new_block)
 
-@patch('transaction.Transaction.validate', return_value=True)
+@patch('core.transaction.Transaction.validate', return_value=True)
 def test_consensus_longest_chain_and_orphan_recovery(mock_validate):
     node_a = Blockchain() 
     node_b = Blockchain() 

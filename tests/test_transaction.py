@@ -33,7 +33,7 @@ def test_transaction_hash_economy_sensitivity():
 
 # --- TESTES DE VALIDAÇÃO DE ASSINATURA ---
 
-@patch('transaction.cryptography') # Intercepta a chamada da biblioteca cryptography
+@patch('core.transaction.cryptography') # Intercepta a chamada da biblioteca cryptography
 def test_transaction_validation_success(mock_crypto):
     # Força a biblioteca de mentira a retornar True (simulando uma assinatura válida)
     mock_crypto.verify_signature.return_value = True
@@ -42,7 +42,7 @@ def test_transaction_validation_success(mock_crypto):
     
     assert tx.validate() is True
 
-@patch('transaction.cryptography')
+@patch('core.transaction.cryptography')
 def test_transaction_validation_invalid_signature(mock_crypto):
     # Simula um hacker tentando usar uma assinatura que não bate com a chave pública
     mock_crypto.verify_signature.return_value = False
