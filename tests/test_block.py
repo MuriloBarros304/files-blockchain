@@ -1,6 +1,6 @@
 import pytest
-from block import Block
-from transaction import Transaction
+from core.block import Block
+from core.transaction import Transaction
 
 @pytest.fixture
 def sample_transactions():

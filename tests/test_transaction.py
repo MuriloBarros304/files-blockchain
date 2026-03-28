@@ -1,5 +1,5 @@
 from unittest.mock import patch
-from transaction import Transaction
+from core.transaction import Transaction
 
 def test_transaction_initialization_with_economy():
     # Verifica se as taxas e recompensas estão sendo atribuídas corretamente

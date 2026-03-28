@@ -8,9 +8,9 @@ Teste de unidade e integração para a classe Blockchain, cobrindo:
 
 import pytest
 from unittest.mock import patch
-from blockchain import Blockchain
-from block import Block
-from transaction import Transaction
+from core.blockchain import Blockchain
+from core.block import Block
+from core.transaction import Transaction
 
 @pytest.fixture
 def blockchain():
