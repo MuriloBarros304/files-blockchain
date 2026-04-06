@@ -42,7 +42,7 @@ def generate_tx():
 
 while True:
     data = generate_tx()
-    producer.send('transactions_topic', data)
+    producer.send('transactions', data)
     print(f"Transação enviada: {data['sender_public_key']} -> {data['receiver_public_key']}")
     time.sleep(random.uniform(1, 5)) # Intervalo aleatório
 
