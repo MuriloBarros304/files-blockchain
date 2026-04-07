@@ -1,6 +1,8 @@
 import hashlib
 import time
-import cryptography
+from cryptography.hazmat.primitives import serialization, hashes
+from cryptography.hazmat.primitives.asymmetric import padding
+import base64
 
 class Transaction:
     """
@@ -36,22 +38,40 @@ class Transaction:
     
     def validate(self) -> bool:
         """
-        Valida a transação verificando se o remetente e a assinatura estão presentes e se a assinatura é válida para os dados atuais da transação.
-        Returns:
-            bool: True se a transação for válida, False caso contrário.
+        Valida a transação verificando a assinatura
         """
         if self.sender is None:
             return False
         
-        if self.sender == 'SYSTEM': # Transações de recompensa para mineradores não precisam de assinatura
+        # Transações de recompensa para mineradores não precisam de assinatura
+        if self.sender == 'SYSTEM':
             return True
             
         if self.signature is None:
+            print("❌ Transação sem assinatura")
             return False
             
-        current_hash = self.generate_hash()
-        
-        return cryptography.verify_signature( # type: ignore
-            public_key=self.sender, signature=self.signature,
-            message=current_hash
-        )
+        try:
+            # Carrega a chave pública do remetente
+            public_key = serialization.load_pem_public_key(self.sender.encode())
+            
+            # Decodifica a assinatura
+            signature = base64.b64decode(self.signature)
+            
+            # Gera o hash da mensagem
+            message = self.generate_hash().encode('utf-8')
+            
+            # Verifica a assinatura
+            public_key.verify(
+                signature,
+                message,
+                padding.PSS(
+                    mgf=padding.MGF1(hashes.SHA256()),
+                    salt_length=padding.PSS.MAX_LENGTH
+                ),
+                hashes.SHA256()
+            )
+            return True
+        except Exception as e:
+            print(f"❌ Erro na validação da assinatura: {e}")
+            return False
