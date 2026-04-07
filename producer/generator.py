@@ -6,7 +6,7 @@ import base64
 from cryptography.hazmat.primitives.asymmetric import padding
 from cryptography.hazmat.primitives import hashes
 from core.transaction import Transaction
-from wallet import Wallet
+from .wallet import Wallet
 
 producer = KafkaProducer(
     bootstrap_servers=['localhost:9092'],
@@ -41,8 +41,8 @@ def generate_tx():
     return tx
 
 while True:
-    data = generate_tx()
-    producer.send('transactions_topic', data)
-    print(f"Transação enviada: {data['sender_public_key']} -> {data['receiver_public_key']}")
+    data = generate_tx().__dict__
+    producer.send('transactions', data)
+    print(f"Transação enviada! ✅")
     time.sleep(random.uniform(1, 5)) # Intervalo aleatório
 
