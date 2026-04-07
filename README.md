@@ -13,6 +13,11 @@ Atualmente, o projeto está focado no módulo de domínio (`core`), que contém 
 │   ├── transaction.py   # Modelagem de transações, taxas e assinaturas digitais
 │   ├── block.py         # Estrutura do bloco, Árvore de Hashes e Proof of Work
 │   ├── blockchain.py    # Orquestrador: Mempool, Consenso, Saldos e Validação
+├── gateway/
+│   ├── main.py          # API FastAPI (SSE/WebSocket) para visualização em tempo real
+│   ├── kafka_pump.py    # Consumer Kafka e broadcast para clientes conectados
+│   ├── state.py         # Estado global em memória para snapshots e eventos
+│   └── README.md        # Guia de execução e configuração do gateway
 ├── tests/               # Suíte de testes unitários e de integração (pytest)
 └── README.md
 ```
@@ -61,9 +66,27 @@ python -m pytest -v tests/
 ---
 
 ## Camada de Rede e Integração
-**[ Status: Em Desenvolvimento ]**
+**[ Status: Gateway Kafka disponível ]**
 
-A próxima fase do projeto acoplará o `core` a uma camada de comunicação distribuída. 
-A arquitetura de rede (Nodes) será responsável por:
+A arquitetura de rede (Nodes) é responsável por:
 * Disponibilizar uma API (HTTP/REST) para clientes enviarem transações e consultarem arquivos.
-* Conectar os nós através de um *Message Broker* (ex: Apache Kafka) ou Sockets (P2P) para realizar o *broadcast* de novos blocos e transações pendentes, garantindo o estado global do livro-razão.
+* Conectar os nós através de um *Message Broker* (ex: Apache Kafka) para realizar o *broadcast* de novos blocos e transações pendentes, garantindo o estado global do livro-razão.
+
+### Gateway de Visualização (Kafka -> SSE/WebSocket)
+
+Foi adicionado um gateway de visualização em `gateway/` que:
+* Consome os tópicos Kafka de blocos, mempool e reorg.
+* Mantém um estado local para geração de `chain_snapshot`.
+* Publica eventos em tempo real para a interface via SSE e WebSocket.
+
+Para executar:
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r gateway/requirements.txt
+cp gateway/.env.example .env
+uvicorn gateway.main:app --host 0.0.0.0 --port 8000 --reload
+```
+
+Consulte `gateway/README.md` para o contrato de eventos e variáveis de ambiente.
