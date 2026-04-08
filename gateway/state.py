@@ -88,7 +88,12 @@ class ChainState:
         self._podar_blocos_locked()
 
         updated_block = self._blocks.get(block['hash'], block)
-        return {'type': 'new_block', 'block': dict(updated_block), 'mempool_size': self._mempool_size}
+        return {
+            'type': 'new_block',
+            'block': dict(updated_block),
+            'mempool_size': self._mempool_size,
+            'main_chain_hashes': list(self._main_chain_hashes),
+        }
 
     def _criar_genesis_sintetico_locked(self, genesis_hash: str) -> None:
         if not genesis_hash or genesis_hash in self._blocks:
