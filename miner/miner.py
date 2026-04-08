@@ -89,7 +89,7 @@ class Miner:
         )
         return public_pem.decode('utf-8')
     
-    def __announce_block(self, block):
+    def __announce_block(self, block, mempool_size: int | None = None):
         """Envia o bloco minerado para o Kafka."""
         block_dict = {
             'index': block.index,
@@ -97,6 +97,8 @@ class Miner:
             'nonce': block.nonce,
             'timestamp': block.timestamp,
             'hash': block.hash,
+            'miner': self.miner_id,
+            'tx_count': max(0, len(block.transactions) - 1),
             'transactions': [
                 {
                     'sender': tx.sender, 'receiver': tx.receiver, 'file_uri': tx.file_uri,
@@ -105,6 +107,10 @@ class Miner:
                 } for tx in block.transactions
             ]
         }
+
+        if mempool_size is not None:
+            block_dict['mempool_size'] = mempool_size
+
         self.block_producer.send(self.blocks_topic, block_dict)
         print(f"📢 Bloco #{block.index} anunciado à rede!")
 
@@ -168,41 +174,53 @@ class Miner:
     def mining_worker(self):
         while True:
             try:
+                should_wait_for_txs = False
+                new_block = None
+                txs_to_mine = []
+                target = ''
+                next_index = None
+
                 with self.mining_lock:
                     latest_block = self.blockchain.get_latest_block()
 
                     # Requisito de ter ao menos algumas txs para minerar (ajuste se quiser minerar blocos vazios)
                     if len(self.mempool) < 1:
-                        time.sleep(1)
-                        continue
+                        self.current_mining_block_index = None
+                        should_wait_for_txs = True
+                    else:
+                        next_index = latest_block.index + 1
+                        self.current_mining_block_index = next_index
+                        self.stop_mining_event.clear()
 
-                    next_index = latest_block.index + 1
-                    self.current_mining_block_index = next_index
-                    self.stop_mining_event.clear()
+                        txs_to_mine = self.mempool.get_transactions(2)
 
-                    txs_to_mine = self.mempool.get_transactions(2)
+                        if not txs_to_mine:
+                            self.current_mining_block_index = None
+                            should_wait_for_txs = True
+                        else:
+                            new_block = Block(
+                                index=next_index,
+                                transactions=txs_to_mine.copy(), # Copia para evitar mutações estranhas
+                                previous_hash=latest_block.hash
+                            )
 
-                    if not txs_to_mine:
-                        continue
+                            total_fee = sum(t.fee for t in txs_to_mine)
+                            reward = 5.0 + total_fee
 
-                    new_block = Block(
-                        index=next_index,
-                        transactions=txs_to_mine.copy(), # Copia para evitar mutações estranhas
-                        previous_hash=latest_block.hash
-                    )
+                            coinbase = new_block.generate_coinbase_transaction(self.miner_address, reward)
+                            new_block.transactions.insert(0, coinbase)
 
-                    total_fee = sum(t.fee for t in txs_to_mine)
-                    reward = 5.0 + total_fee
+                            # Importante recalcular as hashes de transação dentro do bloco (dependendo da sua implementação de Block)
+                            if hasattr(new_block, 'transaction_hashes'):
+                                 new_block.transaction_hashes = ''.join(tx.generate_hash() for tx in new_block.transactions)
 
-                    coinbase = new_block.generate_coinbase_transaction(self.miner_address, reward)
-                    new_block.transactions.insert(0, coinbase)
+                            target = '0' * self.blockchain.difficulty
 
-                    # Importante recalcular as hashes de transação dentro do bloco (dependendo da sua implementação de Block)
-                    if hasattr(new_block, 'transaction_hashes'):
-                         new_block.transaction_hashes = ''.join(tx.generate_hash() for tx in new_block.transactions)
+                if should_wait_for_txs or new_block is None or next_index is None:
+                    time.sleep(0.25)
+                    continue
 
-                    target = '0' * self.blockchain.difficulty
-                    print(f"🔨 Minerando bloco #{next_index}...")
+                print(f"🔨 Minerando bloco #{next_index}...")
 
                 # Loop intensivo de mineração (Fora do lock para não travar o recebimento de blocos/txs)
                 while not self.stop_mining_event.is_set():
@@ -225,7 +243,7 @@ class Miner:
                                 self.blockchain.add_block(new_block)
                                 print(f"🏆 BLOCO #{next_index} MINERADO COM SUCESSO!")
                                 self.mempool.remove_transactions(txs_to_mine)
-                                self.__announce_block(new_block)
+                                self.__announce_block(new_block, mempool_size=len(self.mempool))
                             except Exception as e:
                                 print(f"⚠️ Erro ao inserir bloco que acabei de minerar: {e}")
 

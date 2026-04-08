@@ -64,20 +64,29 @@ class ChainState:
         if mempool_size is not None:
             self._mempool_size = mempool_size
 
+        parent = self._blocks.get(block['previous_hash'])
+        if self._main_chain_hashes and block['previous_hash'] != '0' and parent is None:
+            return None
+
         explicit_main = raw_block.get('is_main')
         if isinstance(explicit_main, bool):
             block['is_main'] = explicit_main
         else:
-            parent = self._blocks.get(block['previous_hash'])
             tem_filho_principal = any(
                 existing.get('previous_hash') == block['previous_hash'] and existing.get('is_main')
                 for existing in self._blocks.values()
             )
-            block['is_main'] = (
-                block['hash'] in self._main_chain_hashes
-                or block['previous_hash'] == '0'
-                or bool(parent and parent.get('is_main') and not tem_filho_principal)
-            )
+
+            # Se o stream inicia sem snapshot/genesis, o primeiro bloco recebido
+            # deve semear a cadeia principal para evitar classificacao em massa como fork.
+            if not self._main_chain_hashes:
+                block['is_main'] = True
+            elif block['previous_hash'] == '0':
+                block['is_main'] = True
+            elif bool(parent and parent.get('is_main') and not tem_filho_principal):
+                block['is_main'] = True
+            else:
+                block['is_main'] = False
 
         self._blocks[block['hash']] = block
         if block['is_main']:
