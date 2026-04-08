@@ -12,12 +12,20 @@ Atualmente, o projeto está focado no módulo de domínio (`core`), que contém 
 ├── core/
 │   ├── transaction.py   # Modelagem de transações, taxas e assinaturas digitais
 │   ├── block.py         # Estrutura do bloco, Árvore de Hashes e Proof of Work
-│   ├── blockchain.py    # Orquestrador: Mempool, Consenso, Saldos e Validação
+│   ├── blockchain.py    # Orquestrador: Consenso global e Validações da Cadeia
+├── miner/
+│   ├── miner.py         # Worker de mineração, integra Kafka e Prova de Trabalho
+│   ├── consensus.py     # Consenso Local, resolução de Forks e Regra de Finalização
+│   ├── network.py       # Listeners, Broadcasters e manipulação com Apache Kafka
+│   ├── mempool.py       # Seleção de transações na fila com prioridade por taxas
+│   └── utils.py         # Classes de suporte e geração de chaves
 ├── gateway/
 │   ├── main.py          # API FastAPI (SSE/WebSocket) para visualização em tempo real
 │   ├── kafka_pump.py    # Consumer Kafka e broadcast para clientes conectados
 │   ├── state.py         # Estado global em memória para snapshots e eventos
 │   └── README.md        # Guia de execução e configuração do gateway
+├── producer/
+│   └── generator.py     # Simulador contínuo de tráfego de transações
 ├── tests/               # Suíte de testes unitários e de integração (pytest)
 └── README.md
 ```
@@ -91,144 +99,105 @@ uvicorn gateway.main:app --host 0.0.0.0 --port 8000 --reload
 
 Consulte `gateway/README.md` para o contrato de eventos e variáveis de ambiente.
 
-### Execucao Rapida Com `.env` (Producer + Miner + Gateway + Front)
+---
 
-Crie o arquivo de ambiente na raiz:
+## Como Executar o Sistema Completo
 
+Esta seção traz um passo a passo consolidado para subir toda a stack (Broker Kafka, Gateway API, Produtor de Tráfego, múltiplos Mineradores e o Painel Frontend).
+
+### 1. Preparação Inicial e Arquivo `.env`
+
+No diretório do backend (onde este arquivo está), crie e ative seu ambiente virtual (recomendado):
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+pip install -r gateway/requirements.txt
+```
+
+Atribua as variáveis de configuração primárias. Se for a primeira vez:
 ```bash
 cp .env.example .env
 ```
+*(O sistema carregará o `.env` automaticamente em sua base no `miner.py` e em outros modulos via `python-dotenv`.)*
 
-Carregue as variaveis no shell atual:
+### 2. Iniciando o Broker de Mensageria (Kafka)
 
+Você precisará de um container Kafka operante para orquestrar as transações e blocos.
 ```bash
-set -a
-source .env
-set +a
-```
-
-Em terminais separados, execute:
-
-```bash
-# 1) Producer de transacoes
-PYTHONPATH=. python3 -m producer.generator
-
-# 2) Minerador (usa MINER_DIFFICULTY do .env)
-PYTHONPATH=. python3 -m miner.miner
-
-# 3) Gateway para streaming em tempo real
-python3 -m uvicorn gateway.main:app --host 0.0.0.0 --port 8000 --reload
-```
-
-Front Angular (em outro repositorio/pasta):
-
-```bash
-cd ../painel-blockchain-pow
-npm start -- --host 0.0.0.0 --port 4200
-```
-
-Para sobrescrever a dificuldade sem alterar `.env`:
-
-```bash
-PYTHONPATH=. python3 -m miner.miner --difficulty 4
-```
-
-Para controlar a janela de finalizacao de fork (apos N confirmacoes, ramos
-perdedores deixam de ser estendidos):
-
-```bash
-PYTHONPATH=. python3 -m miner.miner --finalization-confirmations 6
-```
-
-### Como iniciar e finalizar os processos
-
-Esta secao traz um passo a passo para subir e derrubar toda a stack
-(broker + gateway + producer + 3 miners + frontend).
-
-#### 1) Iniciar do zero (3 miners com dificuldade 5)
-
-No backend, prepare o ambiente (ajuste os caminhos para sua maquina):
-
-```bash
-BACKEND_DIR="/caminho/para/files-blockchain"
-FRONTEND_DIR="/caminho/para/painel-blockchain-pow"
-
-cd "$BACKEND_DIR"
-cp .env.example .env  # rode apenas na primeira vez
-set -a
-source .env
-set +a
-```
-
-Suba o broker Kafka:
-
-```bash
+# Via compose:
 docker-compose up -d broker
-```
 
-Se o `docker-compose` nao funcionar no seu ambiente, use fallback:
-
-```bash
+# Ou fallback direto:
 docker rm -f broker >/dev/null 2>&1 || true
 docker run -d --name broker -p 9092:9092 --restart unless-stopped apache/kafka:latest
 ```
 
-Em terminais separados, inicie os servicos:
+### 3. Rodando a Stack (Terminais Isolados)
 
+Execute cada um dos comandos abaixo em terminais separados. Sinta-se livre para ajustar `--difficulty` ou instanciar ainda mais mineradores conforme desejar avaliar simulações de "rede" e "forks".
+
+**Terminal 1: Gateway e API de Streaming**
 ```bash
-# Gateway
-cd "$BACKEND_DIR"
-KAFKA_BOOTSTRAP_SERVERS=localhost:9092 KAFKA_TOPIC_BLOCKS=blocks KAFKA_TOPIC_TRANSACTIONS=transactions PYTHONPATH=. python3 -m uvicorn gateway.main:app --host 0.0.0.0 --port 8000
+PYTHONPATH=. python3 -m uvicorn gateway.main:app --host 0.0.0.0 --port 8000
 ```
 
+**Terminal 2: Simulador/Produtor de Transações Contínuas**
 ```bash
-# Producer
-cd "$BACKEND_DIR"
-KAFKA_BOOTSTRAP_SERVERS=localhost:9092 KAFKA_TOPIC_BLOCKS=blocks KAFKA_TOPIC_TRANSACTIONS=transactions PYTHONPATH=. python3 -m producer.generator
+PYTHONPATH=. python3 -m producer.generator
 ```
 
+**Terminal 3: Minerador A (Janela de finalização default = 6, confira `.env`)**
 ```bash
-# Miner A (dificuldade 5)
-cd "$BACKEND_DIR"
-KAFKA_BOOTSTRAP_SERVERS=localhost:9092 KAFKA_TOPIC_BLOCKS=blocks KAFKA_TOPIC_TRANSACTIONS=transactions PYTHONUNBUFFERED=1 PYTHONPATH=. MINER_ID=miner-a MINER_DIFFICULTY=5 python3 -m miner.miner
+PYTHONUNBUFFERED=1 PYTHONPATH=. MINER_ID=miner-a MINER_DIFFICULTY=5 python3 -m miner.miner
 ```
 
+**Terminal 4: Minerador B**
 ```bash
-# Miner B (dificuldade 5)
-cd "$BACKEND_DIR"
-KAFKA_BOOTSTRAP_SERVERS=localhost:9092 KAFKA_TOPIC_BLOCKS=blocks KAFKA_TOPIC_TRANSACTIONS=transactions PYTHONUNBUFFERED=1 PYTHONPATH=. MINER_ID=miner-b MINER_DIFFICULTY=5 python3 -m miner.miner
+PYTHONUNBUFFERED=1 PYTHONPATH=. MINER_ID=miner-b MINER_DIFFICULTY=5 python3 -m miner.miner
 ```
 
-```bash
-# Miner C (dificuldade 5)
-cd "$BACKEND_DIR"
-KAFKA_BOOTSTRAP_SERVERS=localhost:9092 KAFKA_TOPIC_BLOCKS=blocks KAFKA_TOPIC_TRANSACTIONS=transactions PYTHONUNBUFFERED=1 PYTHONPATH=. MINER_ID=miner-c MINER_DIFFICULTY=5 python3 -m miner.miner
-```
+*(Sinta-se à vontade para executar Miners extras se tiver núcleos/concorrência para testes de Fork).*
 
+**Terminal 5: Frontend Angular**
+Abra o diretório do frontend e inicie a interface:
 ```bash
-# Frontend
-cd "$FRONTEND_DIR"
+cd ../painel-blockchain-pow
+npm install
 npm start -- --host 0.0.0.0 --port 4200
 ```
 
-Validacao rapida:
+Se tudo ocorreu bem, abra o navegador em `http://localhost:4200` para acompanhar a criação do grafo em tempo real e em `http://localhost:8000/docs` para visualizar a API do Gateway.
 
+---
+
+## Flags Avançadas do Minerador
+
+Para sobrescrever qualquer configuração definida no `.env` globalmente, aplique as flags no processo do `miner.py`:
+
+* Reajuste de dificuldade:
 ```bash
-curl -sS http://localhost:8000/healthz
-curl -sS http://localhost:8000/snapshot | head -c 400
+PYTHONPATH=. python3 -m miner.miner --difficulty 4
+```
+* Customização da janela de finalização (Quantidade restrita de nós antigos até a exclusão sumária. Ajuda contra ataques de *Time Warp* global):
+```bash
+PYTHONPATH=. python3 -m miner.miner --finalization-confirmations 10
 ```
 
-#### 2) Finalizar tudo
+---
 
-Use este comando para encerrar backend, miners, frontend e broker:
+## Interrompendo todos os serviços
+
+Para encerrar o Backend, Miners, Gateway, e Frontend de forma massiva sem acessar os terminais individualmente:
 
 ```bash
 pkill -f 'python3 -m uvicorn gateway.main:app' || true
 pkill -f 'python3 -m producer.generator' || true
 pkill -f 'python3 -m miner.miner' || true
 pkill -f 'ng serve --host 0.0.0.0 --port 4200' || true
+pkill -f 'npm start' || true
 
-# escolha uma opcao para o broker
-docker-compose down -v || true
+# Derrube o Kafka
 docker rm -f broker >/dev/null 2>&1 || true
 ```
