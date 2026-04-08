@@ -12,6 +12,7 @@ from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from starlette.websockets import WebSocketState
+from kafka import KafkaProducer
 
 from .broadcaster import EventBroadcaster
 from .config import GatewaySettings
@@ -30,15 +31,26 @@ logger = logging.getLogger('gateway.main')
 chain_state = ChainState(max_blocks=settings.snapshot_max_blocks)
 broadcaster = EventBroadcaster(queue_maxsize=settings.client_queue_size)
 kafka_pump = KafkaEventPump(settings, chain_state, broadcaster)
+tx_producer = None
 
 
 @asynccontextmanager
 async def lifespan(_: FastAPI) -> AsyncGenerator[None, None]:
+    global tx_producer
+    
+    # Inicializa o Producer Kafka com as configurações do gateway
+    tx_producer = KafkaProducer(
+        bootstrap_servers=settings.kafka_bootstrap_servers.split(','),
+        value_serializer=lambda v: json.dumps(v, ensure_ascii=False).encode('utf-8')
+    )
+    
     await kafka_pump.iniciar()
     try:
         yield
     finally:
         await kafka_pump.parar()
+        if tx_producer is not None:
+            tx_producer.close()
 
 
 app = FastAPI(
@@ -128,8 +140,22 @@ async def ws_chain(websocket: WebSocket) -> None:
 
 
 @app.post('/transactions')
-async def post_transaction(request: Request):
+async def post_transaction(request: Request) -> dict[str, Any]:
     tx_data = await request.json()
-   
-    logger.info(f"Transação recebida e enviada ao Kafka: {tx_data['file_uri']}")
-    return {"status": "sent", "txid": "hash_gerado_ou_retornado"}
+    
+    if tx_producer is None:
+        return {"status": "error", "message": "Producer Kafka não inicializado"}
+        
+    try:
+        # Envia a transação de forma assíncrona ao Kafka pelo cliente local
+        tx_producer.send(settings.kafka_topic_transactions, tx_data)
+        # Força o flush para garantir recebimento em ambientes rápidos
+        tx_producer.flush()
+        
+        logger.info(f"Transação publicada com sucesso no Kafka. Tópico: {settings.kafka_topic_transactions}")
+        
+    except Exception as e:
+        logger.error(f"Erro ao publicar transação: {e}")
+        return {"status": "error", "message": str(e)}
+        
+    return {"status": "sent", "transaction": tx_data}

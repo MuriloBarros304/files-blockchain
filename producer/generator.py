@@ -46,7 +46,7 @@ def main():
 
     if args.seed is not None:
         random.seed(args.seed)
-        print(f"Generator] Executando com seed fixa: {args.seed}")
+        print(f"[Generator] Executando com seed fixa: {args.seed}")
 
     producer = KafkaProducer(
         bootstrap_servers=['localhost:9092'],
