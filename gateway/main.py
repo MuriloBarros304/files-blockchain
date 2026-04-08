@@ -125,3 +125,11 @@ async def ws_chain(websocket: WebSocket) -> None:
         logger.info('Cliente websocket desconectado: %s', client_id)
     finally:
         await broadcaster.remover_cliente(client_id)
+
+
+@app.post('/transactions')
+async def post_transaction(request: Request):
+    tx_data = await request.json()
+   
+    logger.info(f"Transação recebida e enviada ao Kafka: {tx_data['file_uri']}")
+    return {"status": "sent", "txid": "hash_gerado_ou_retornado"}
