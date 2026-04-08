@@ -90,3 +90,45 @@ uvicorn gateway.main:app --host 0.0.0.0 --port 8000 --reload
 ```
 
 Consulte `gateway/README.md` para o contrato de eventos e variáveis de ambiente.
+
+### Execucao Rapida Com `.env` (Producer + Miner + Gateway + Front)
+
+Crie o arquivo de ambiente na raiz:
+
+```bash
+cp .env.example .env
+```
+
+Carregue as variaveis no shell atual:
+
+```bash
+set -a
+source .env
+set +a
+```
+
+Em terminais separados, execute:
+
+```bash
+# 1) Producer de transacoes
+PYTHONPATH=. python3 -m producer.generator
+
+# 2) Minerador (usa MINER_DIFFICULTY do .env)
+PYTHONPATH=. python3 -m miner.miner
+
+# 3) Gateway para streaming em tempo real
+python3 -m uvicorn gateway.main:app --host 0.0.0.0 --port 8000 --reload
+```
+
+Front Angular (em outro repositorio/pasta):
+
+```bash
+cd ../painel-blockchain-pow
+npm start -- --host 0.0.0.0 --port 4200
+```
+
+Para sobrescrever a dificuldade sem alterar `.env`:
+
+```bash
+PYTHONPATH=. python3 -m miner.miner --difficulty 4
+```

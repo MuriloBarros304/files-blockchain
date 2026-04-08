@@ -1,9 +1,17 @@
+import argparse
 import json
+import os
 import threading
 import time
 import traceback
 import uuid
 from kafka import KafkaConsumer, KafkaProducer
+
+try:
+    from dotenv import load_dotenv
+except ImportError:
+    def load_dotenv(*_args: object, **_kwargs: object) -> bool:
+        return False
 
 from core.blockchain import Blockchain
 from core.block import Block
@@ -14,12 +22,47 @@ from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
 from cryptography.hazmat.backends import default_backend
 
+load_dotenv()
+
+
+def _ler_int_env(nome: str) -> int | None:
+    valor_raw = os.getenv(nome)
+    if valor_raw is None or not valor_raw.strip():
+        return None
+
+    try:
+        valor = int(valor_raw)
+    except ValueError as exc:
+        raise ValueError(f"{nome} deve ser um inteiro, recebido: {valor_raw!r}") from exc
+
+    if valor < 1:
+        raise ValueError(f"{nome} deve ser >= 1, recebido: {valor}")
+
+    return valor
+
+
 class Miner:
-    def __init__(self, broker='localhost:9092'):
+    def __init__(
+        self,
+        broker='localhost:9092',
+        difficulty: int | None = None,
+        tx_topic: str = 'transactions',
+        blocks_topic: str = 'blocks',
+    ):
         self.blockchain = Blockchain()
         self.mempool = Mempool()
         self.miner_address = self.__generate_miner_key()
         self.broker = broker
+        self.tx_topic = tx_topic
+        self.blocks_topic = blocks_topic
+
+        if difficulty is None:
+            difficulty = _ler_int_env('MINER_DIFFICULTY')
+
+        if difficulty is not None:
+            if difficulty < 1:
+                raise ValueError(f"difficulty deve ser >= 1, recebido: {difficulty}")
+            self.blockchain.difficulty = difficulty
         
         # Gera um ID único para essa instância do minerador
         self.miner_id = str(uuid.uuid4())
@@ -62,7 +105,7 @@ class Miner:
                 } for tx in block.transactions
             ]
         }
-        self.block_producer.send('blocks', block_dict)
+        self.block_producer.send(self.blocks_topic, block_dict)
         print(f"📢 Bloco #{block.index} anunciado à rede!")
 
     def reconstruct_transaction(self, tx_data):
@@ -81,7 +124,7 @@ class Miner:
     def block_listener(self):
         """Escuta a rede para novos blocos de outros mineradores."""
         block_consumer = KafkaConsumer(
-            'blocks',
+            self.blocks_topic,
             bootstrap_servers=[self.broker],
             group_id=f"miner-block-group-{self.miner_id}", 
             value_deserializer=lambda m: json.loads(m.decode('utf-8')),
@@ -210,7 +253,7 @@ class Miner:
 
         # Consumidor de transações (Group ID único para receber TODAS as transações)
         tx_consumer = KafkaConsumer(
-            'transactions',
+            self.tx_topic,
             bootstrap_servers=[self.broker],
             group_id=f"miner-tx-group-{self.miner_id}", # <--- IMPORTANTE!
             value_deserializer=lambda m: json.loads(m.decode('utf-8')),
@@ -229,5 +272,38 @@ class Miner:
             print("\n🛑 Encerrando minerador...")
 
 if __name__ == "__main__":
-    miner = Miner()
+    parser = argparse.ArgumentParser(description='Executa o minerador da blockchain.')
+    parser.add_argument(
+        '--broker',
+        default=os.getenv('KAFKA_BROKER', 'localhost:9092'),
+        help='Broker Kafka no formato host:porta (default: env KAFKA_BROKER ou localhost:9092).',
+    )
+    parser.add_argument(
+        '--difficulty',
+        type=int,
+        default=_ler_int_env('MINER_DIFFICULTY'),
+        help='Dificuldade de mineração (default: env MINER_DIFFICULTY ou valor padrão do Blockchain).',
+    )
+    parser.add_argument(
+        '--tx-topic',
+        default=os.getenv('KAFKA_TOPIC_TRANSACTIONS', 'transactions'),
+        help='Tópico Kafka de transações (default: env KAFKA_TOPIC_TRANSACTIONS ou transactions).',
+    )
+    parser.add_argument(
+        '--blocks-topic',
+        default=os.getenv('KAFKA_TOPIC_BLOCKS', 'blocks'),
+        help='Tópico Kafka de blocos (default: env KAFKA_TOPIC_BLOCKS ou blocks).',
+    )
+
+    args = parser.parse_args()
+
+    if args.difficulty is not None and args.difficulty < 1:
+        parser.error('--difficulty deve ser >= 1')
+
+    miner = Miner(
+        broker=args.broker,
+        difficulty=args.difficulty,
+        tx_topic=args.tx_topic,
+        blocks_topic=args.blocks_topic,
+    )
     miner.run()
