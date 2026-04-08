@@ -1,5 +1,6 @@
 import time
 import random
+import argparse
 from kafka import KafkaProducer
 import json
 import base64
@@ -8,14 +9,7 @@ from cryptography.hazmat.primitives import hashes
 from core.transaction import Transaction
 from .wallet import Wallet
 
-producer = KafkaProducer(
-    bootstrap_servers=['localhost:9092'],
-    value_serializer=lambda v: json.dumps(v).encode('utf-8')
-)
-
-users = [Wallet(f"User_{i}") for i in range(5)]
-
-def generate_tx():
+def generate_tx(users):
     # Sorteio de remetente e destinatário
     sender, receiver = random.sample(users, 2)
     
@@ -40,9 +34,32 @@ def generate_tx():
     
     return tx
 
-while True:
-    data = generate_tx().__dict__
-    producer.send('transactions', data)
-    print(f"Transação enviada! ✅")
-    time.sleep(random.uniform(1, 5)) # Intervalo aleatório
+def main():
+    parser = argparse.ArgumentParser(description='Gerador de transações para a Blockchain.')
+    parser.add_argument(
+        '--seed',
+        type=int,
+        default=None,
+        help='Semente (seed) fixa para tornar a execução reproduzível.'
+    )
+    args = parser.parse_args()
+
+    if args.seed is not None:
+        random.seed(args.seed)
+        print(f"Generator] Executando com seed fixa: {args.seed}")
+
+    producer = KafkaProducer(
+        bootstrap_servers=['localhost:9092'],
+        value_serializer=lambda v: json.dumps(v).encode('utf-8')
+    )
+
+    users = [Wallet(f"User_{i}") for i in range(5)]
+
+    while True:
+        data = generate_tx(users).__dict__
+        producer.send('transactions', data)
+        print(f"Transação enviada!(URI: {data['file_uri']})")
+        time.sleep(random.uniform(1, 3))
+if __name__ == "__main__":
+    main()
 

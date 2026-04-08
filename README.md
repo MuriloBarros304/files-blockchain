@@ -147,6 +147,7 @@ PYTHONPATH=. python3 -m uvicorn gateway.main:app --host 0.0.0.0 --port 8000
 ```bash
 PYTHONPATH=. python3 -m producer.generator
 ```
+> *Nota: Você pode adicionar a flag `--seed <NUMERO>` no gerador para que a execução (remetentes, arquivos e tempo de envio) seja exatamente a mesma (Determinística) em avaliações e stress tests.*
 
 **Terminal 3: Minerador A (Janela de finalização default = 6, confira `.env`)**
 ```bash
