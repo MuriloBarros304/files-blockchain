@@ -26,7 +26,7 @@ from cryptography.hazmat.backends import default_backend
 load_dotenv()
 
 
-def _ler_int_env(nome: str) -> int | None:
+def _ler_int_env(nome: str, min_value: int = 1) -> int | None:
     valor_raw = os.getenv(nome)
     if valor_raw is None or not valor_raw.strip():
         return None
@@ -36,8 +36,8 @@ def _ler_int_env(nome: str) -> int | None:
     except ValueError as exc:
         raise ValueError(f"{nome} deve ser um inteiro, recebido: {valor_raw!r}") from exc
 
-    if valor < 1:
-        raise ValueError(f"{nome} deve ser >= 1, recebido: {valor}")
+    if valor < min_value:
+        raise ValueError(f"{nome} deve ser >= {min_value}, recebido: {valor}")
 
     return valor
 
@@ -47,6 +47,7 @@ class Miner:
         self,
         broker='localhost:9092',
         difficulty: int | None = None,
+        finalization_confirmations: int | None = None,
         tx_topic: str = 'transactions',
         blocks_topic: str = 'blocks',
     ):
@@ -60,10 +61,27 @@ class Miner:
         if difficulty is None:
             difficulty = _ler_int_env('MINER_DIFFICULTY')
 
+        if finalization_confirmations is None:
+            finalization_confirmations = _ler_int_env(
+                'MINER_FINALIZATION_CONFIRMATIONS',
+                min_value=0,
+            )
+
+        if finalization_confirmations is None:
+            finalization_confirmations = 6
+
         if difficulty is not None:
             if difficulty < 1:
                 raise ValueError(f"difficulty deve ser >= 1, recebido: {difficulty}")
             self.blockchain.difficulty = difficulty
+
+        if finalization_confirmations < 0:
+            raise ValueError(
+                'finalization_confirmations deve ser >= 0, '
+                f'recebido: {finalization_confirmations}'
+            )
+
+        self.finalization_confirmations = finalization_confirmations
         
         # Gera um ID único para essa instância do minerador
         self.miner_id = str(uuid.uuid4())
@@ -141,6 +159,12 @@ class Miner:
         if not pontas:
             return self.active_tip_hash
 
+        pontas_validas = [block_hash for block_hash in pontas if self._ramo_respeita_finalizacao(block_hash)]
+        if pontas_validas:
+            pontas = pontas_validas
+        elif self.active_tip_hash:
+            return self.active_tip_hash
+
         return max(
             pontas,
             key=lambda block_hash: (
@@ -149,6 +173,36 @@ class Miner:
                 block_hash,
             ),
         )
+
+    def _obter_ancora_finalizacao(self) -> tuple[int, str] | None:
+        if self.finalization_confirmations <= 0:
+            return None
+
+        if len(self.active_chain_hashes) <= self.finalization_confirmations:
+            return None
+
+        anchor_pos = len(self.active_chain_hashes) - self.finalization_confirmations - 1
+        anchor_hash = self.active_chain_hashes[anchor_pos]
+        anchor_block = self.known_blocks.get(anchor_hash)
+        if anchor_block is None:
+            return None
+
+        return anchor_block.index, anchor_hash
+
+    def _cadeia_respeita_finalizacao(self, chain_hashes: list[str]) -> bool:
+        anchor = self._obter_ancora_finalizacao()
+        if anchor is None:
+            return True
+
+        anchor_index, anchor_hash = anchor
+        if len(chain_hashes) <= anchor_index:
+            return False
+
+        return chain_hashes[anchor_index] == anchor_hash
+
+    def _ramo_respeita_finalizacao(self, tip_hash: str) -> bool:
+        branch_hashes = self._obter_caminho_hashes(tip_hash)
+        return self._cadeia_respeita_finalizacao(branch_hashes)
 
     def _validar_bloco_para_rede(self, block: Block, parent: Block | None) -> bool:
         block_hash = block.hash
@@ -208,6 +262,9 @@ class Miner:
 
         nova_cadeia_hashes = self._obter_caminho_hashes(melhor_ponta_hash)
         if not nova_cadeia_hashes:
+            return False
+
+        if not self._cadeia_respeita_finalizacao(nova_cadeia_hashes):
             return False
 
         nova_cadeia = [self.known_blocks[block_hash] for block_hash in nova_cadeia_hashes if block_hash in self.known_blocks]
@@ -278,6 +335,13 @@ class Miner:
             parent = self.known_blocks.get(block.previous_hash)
             if parent is None:
                 self.pending_blocks_by_parent[block.previous_hash].append(block)
+                return False
+
+            if not self._ramo_respeita_finalizacao(block.previous_hash):
+                print(
+                    f"⛔ Bloco #{block.index} ignorado: ramo fora da janela "
+                    f"de finalizacao ({self.finalization_confirmations} confirmacoes)."
+                )
                 return False
 
         if not self._validar_bloco_para_rede(block, parent):
@@ -488,7 +552,8 @@ class Miner:
         print("=" * 60)
         print(
             f"🪙 MINERADOR ONLINE | ID: {self.miner_id[:8]} | "
-            f"Dificuldade: {self.blockchain.difficulty}"
+            f"Dificuldade: {self.blockchain.difficulty} | "
+            f"Finalizacao: {self.finalization_confirmations}"
         )
         print("=" * 60)
 
@@ -530,6 +595,16 @@ if __name__ == "__main__":
         help='Dificuldade de mineração (default: env MINER_DIFFICULTY ou valor padrão do Blockchain).',
     )
     parser.add_argument(
+        '--finalization-confirmations',
+        type=int,
+        default=_ler_int_env('MINER_FINALIZATION_CONFIRMATIONS', min_value=0),
+        help=(
+            'Numero de confirmacoes para finalizacao da cadeia. '
+            'Apos essa janela, ramos perdedores deixam de ser estendidos '
+            '(default: env MINER_FINALIZATION_CONFIRMATIONS ou 6).'
+        ),
+    )
+    parser.add_argument(
         '--tx-topic',
         default=os.getenv('KAFKA_TOPIC_TRANSACTIONS', 'transactions'),
         help='Tópico Kafka de transações (default: env KAFKA_TOPIC_TRANSACTIONS ou transactions).',
@@ -545,9 +620,13 @@ if __name__ == "__main__":
     if args.difficulty is not None and args.difficulty < 1:
         parser.error('--difficulty deve ser >= 1')
 
+    if args.finalization_confirmations is not None and args.finalization_confirmations < 0:
+        parser.error('--finalization-confirmations deve ser >= 0')
+
     miner = Miner(
         broker=args.broker,
         difficulty=args.difficulty,
+        finalization_confirmations=args.finalization_confirmations,
         tx_topic=args.tx_topic,
         blocks_topic=args.blocks_topic,
     )

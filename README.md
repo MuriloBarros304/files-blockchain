@@ -132,3 +132,103 @@ Para sobrescrever a dificuldade sem alterar `.env`:
 ```bash
 PYTHONPATH=. python3 -m miner.miner --difficulty 4
 ```
+
+Para controlar a janela de finalizacao de fork (apos N confirmacoes, ramos
+perdedores deixam de ser estendidos):
+
+```bash
+PYTHONPATH=. python3 -m miner.miner --finalization-confirmations 6
+```
+
+### Como iniciar e finalizar os processos
+
+Esta secao traz um passo a passo para subir e derrubar toda a stack
+(broker + gateway + producer + 3 miners + frontend).
+
+#### 1) Iniciar do zero (3 miners com dificuldade 5)
+
+No backend, prepare o ambiente (ajuste os caminhos para sua maquina):
+
+```bash
+BACKEND_DIR="/caminho/para/files-blockchain"
+FRONTEND_DIR="/caminho/para/painel-blockchain-pow"
+
+cd "$BACKEND_DIR"
+cp .env.example .env  # rode apenas na primeira vez
+set -a
+source .env
+set +a
+```
+
+Suba o broker Kafka:
+
+```bash
+docker-compose up -d broker
+```
+
+Se o `docker-compose` nao funcionar no seu ambiente, use fallback:
+
+```bash
+docker rm -f broker >/dev/null 2>&1 || true
+docker run -d --name broker -p 9092:9092 --restart unless-stopped apache/kafka:latest
+```
+
+Em terminais separados, inicie os servicos:
+
+```bash
+# Gateway
+cd "$BACKEND_DIR"
+KAFKA_BOOTSTRAP_SERVERS=localhost:9092 KAFKA_TOPIC_BLOCKS=blocks KAFKA_TOPIC_TRANSACTIONS=transactions PYTHONPATH=. python3 -m uvicorn gateway.main:app --host 0.0.0.0 --port 8000
+```
+
+```bash
+# Producer
+cd "$BACKEND_DIR"
+KAFKA_BOOTSTRAP_SERVERS=localhost:9092 KAFKA_TOPIC_BLOCKS=blocks KAFKA_TOPIC_TRANSACTIONS=transactions PYTHONPATH=. python3 -m producer.generator
+```
+
+```bash
+# Miner A (dificuldade 5)
+cd "$BACKEND_DIR"
+KAFKA_BOOTSTRAP_SERVERS=localhost:9092 KAFKA_TOPIC_BLOCKS=blocks KAFKA_TOPIC_TRANSACTIONS=transactions PYTHONUNBUFFERED=1 PYTHONPATH=. MINER_ID=miner-a MINER_DIFFICULTY=5 python3 -m miner.miner
+```
+
+```bash
+# Miner B (dificuldade 5)
+cd "$BACKEND_DIR"
+KAFKA_BOOTSTRAP_SERVERS=localhost:9092 KAFKA_TOPIC_BLOCKS=blocks KAFKA_TOPIC_TRANSACTIONS=transactions PYTHONUNBUFFERED=1 PYTHONPATH=. MINER_ID=miner-b MINER_DIFFICULTY=5 python3 -m miner.miner
+```
+
+```bash
+# Miner C (dificuldade 5)
+cd "$BACKEND_DIR"
+KAFKA_BOOTSTRAP_SERVERS=localhost:9092 KAFKA_TOPIC_BLOCKS=blocks KAFKA_TOPIC_TRANSACTIONS=transactions PYTHONUNBUFFERED=1 PYTHONPATH=. MINER_ID=miner-c MINER_DIFFICULTY=5 python3 -m miner.miner
+```
+
+```bash
+# Frontend
+cd "$FRONTEND_DIR"
+npm start -- --host 0.0.0.0 --port 4200
+```
+
+Validacao rapida:
+
+```bash
+curl -sS http://localhost:8000/healthz
+curl -sS http://localhost:8000/snapshot | head -c 400
+```
+
+#### 2) Finalizar tudo
+
+Use este comando para encerrar backend, miners, frontend e broker:
+
+```bash
+pkill -f 'python3 -m uvicorn gateway.main:app' || true
+pkill -f 'python3 -m producer.generator' || true
+pkill -f 'python3 -m miner.miner' || true
+pkill -f 'ng serve --host 0.0.0.0 --port 4200' || true
+
+# escolha uma opcao para o broker
+docker-compose down -v || true
+docker rm -f broker >/dev/null 2>&1 || true
+```
