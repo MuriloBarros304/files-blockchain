@@ -50,9 +50,10 @@ fi
 echo "Iniciando a API Gateway..."
 python3 -m uvicorn gateway.main:app --host 0.0.0.0 --port 8000 &
 
-echo "Iniciando os Mineradores (Dificuldade 6)..."
-MINER_ID=miner-a MINER_DIFFICULTY=6 python3 -m miner.miner &
-MINER_ID=miner-b MINER_DIFFICULTY=6 python3 -m miner.miner &
+echo "Iniciando os Mineradores (Dificuldade 5)..."
+MINER_ID=miner-a MINER_DIFFICULTY=5 python3 -m miner.miner &
+MINER_ID=miner-b MINER_DIFFICULTY=5 python3 -m miner.miner &
+MINER_ID=miner-c MINER_DIFFICULTY=5 python3 -m miner.miner &
 
 echo "Iniciando o Produtor de Transações aleatórias (Seed 50)..."
 python3 -m producer.generator --seed 50 &
