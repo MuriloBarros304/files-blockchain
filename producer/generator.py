@@ -2,6 +2,7 @@ import time
 import random
 import argparse
 from kafka import KafkaProducer
+from kafka.errors import NoBrokersAvailable
 import json
 import base64
 from cryptography.hazmat.primitives.asymmetric import padding
@@ -35,6 +36,24 @@ def generate_tx(users):
     return tx
 
 def main():
+    producer = None
+    retries = 10
+
+    for i in range(retries):
+        try:
+            print(f"Tentando conectar ao Kafka (Tentativa {i+1}/{retries})...")
+            producer = KafkaProducer(
+                bootstrap_servers=['localhost:9092'],
+                value_serializer=lambda v: json.dumps(v).encode('utf-8')
+            )
+            print("Conectado ao Kafka com sucesso!")
+            break # Exit the loop if successful
+        except NoBrokersAvailable:
+            time.sleep(3) # Wait 3 seconds and try again
+
+    if not producer:
+        raise Exception("Falha fatal: Não foi possível conectar ao Kafka após várias tentativas.")
+
     parser = argparse.ArgumentParser(description='Gerador de transações para a Blockchain.')
     parser.add_argument(
         '--seed',

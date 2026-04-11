@@ -27,7 +27,10 @@ class MinerNetwork:
         
         self.block_producer = KafkaProducer(
             bootstrap_servers=[self.broker],
-            value_serializer=lambda v: json.dumps(v, default=str).encode('utf-8')
+            value_serializer=lambda v: json.dumps(
+                v,
+                default=str
+                ).encode('utf-8')
         )
 
     def announce_block(self, block: Block, mempool_size: int | None = None):
@@ -86,7 +89,8 @@ class MinerNetwork:
                     if not isinstance(raw_txs, list):
                         continue
 
-                    reconstructed_txs = [self.reconstruct_transaction(t) for t in raw_txs]
+                    reconstructed_txs = [self.reconstruct_transaction(t) \
+                                        for t in raw_txs]
                     new_block = Block(
                         index=block_data['index'],
                         transactions=reconstructed_txs,
@@ -100,7 +104,11 @@ class MinerNetwork:
 
                 with self.mining_lock:
                     if self.consensus_manager.integrate_block(new_block):
-                        print(f"Bloco #{new_block.index} recebido da rede e integrado.")
+                        print(f"Bloco #{new_block.index} recebido da rede e "\
+                              "integrado.")
+                    else:
+                        print(f"Bloco #{new_block.index} recebido da rede foi "\
+                        "recusado (inválido ou concorrente de menor esforço).")
                             
         except Exception as e:
             print(f"-> Erro no block_listener: {e}")

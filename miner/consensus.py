@@ -35,23 +35,14 @@ class ConsensusManager:
 
         self.known_blocks[genesis_hash] = genesis
         self.children_by_parent[genesis.previous_hash].add(genesis_hash)
-        self.cumulative_work_by_hash[genesis_hash] = self._block_digest(genesis)
+        self.cumulative_work_by_hash[genesis_hash] = self._calculate_block_work(genesis)
         self.active_chain_hashes = [genesis_hash]
         self.active_tip_hash = genesis_hash
 
-    def _block_digest(self, block: Block) -> int:
-        block_hash = block.hash
-        if not isinstance(block_hash, str):
+    def _calculate_block_work(self, block: Block) -> int:
+        if block.hash is None:
             return 0
-
-        zeros = 0
-        for char in block_hash:
-            if char != '0':
-                break
-            zeros += 1
-
-        # Aproxima o trabalho acumulado: mais zeros iniciais => maior trabalho.
-        return 16 ** zeros
+        return 16 ** self.blockchain.difficulty
 
     def _get_path_hashes(self, tip_hash: str) -> list[str]:
         reverse_path: list[str] = []
@@ -154,7 +145,7 @@ class ConsensusManager:
         if len(rewards) != 1:
             return False
 
-        taxes = sum(t.fee for t in block.transactions)
+        taxes = sum(t.fee for t in block.transactions[1:])
         if block.transactions[0].sender != 'SYSTEM' or abs(block.transactions[0].reward - (5.0 + taxes)) > 1e-9:
             return False
 
@@ -276,7 +267,7 @@ class ConsensusManager:
         self.known_blocks[block_hash] = block
         self.children_by_parent[block.previous_hash].add(block_hash)
         self.cumulative_work_by_hash[block_hash] = parent_work \
-            + self._block_digest(block)
+            + self._calculate_block_work(block)
 
         # Tenta encaixar blocos pendentes cujo pai acabou de chegar.
         pending_children = self.pending_blocks_by_parent.pop(block_hash, [])

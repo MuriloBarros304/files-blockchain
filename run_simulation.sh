@@ -5,28 +5,32 @@ cd "$SCRIPT_DIR" || exit
 
 echo "Iniciando infraestrutura do Kafka..."
 
-# Encerra processos anteriores para evitar conflitos
+# Encerra processos backend anteriores para evitar conflitos de porta
 pkill -f "miner.miner"
 pkill -f "gateway.main:app"
 pkill -f "producer.generator"
 
 # Recria os contêineres limpos
-docker-compose down -v
-docker-compose up -d
+docker compose down -v
+docker compose up -d
 
-# Aguarda o Kafka responder na porta 9092 em vez de um sleep fixo
+# Aguarda o Kafka responder na porta 9092 usando socket nativo do Bash
 echo "Aguardando o Kafka inicializar na porta 9092..."
-while ! nc -z localhost 9092; do   
-  sleep 1 
+while ! bash -c 'true < /dev/tcp/localhost/9092' 2>/dev/null; do
+    sleep 1
 done
+
+# TEMPO DE ESPERA CRÍTICO: Dá tempo para a JVM do Kafka carregar internamente
+# Isso evita que o uvicorn (Gateway) crashe com "NoBrokersAvailable"
+echo "Porta 9092 aberta. Aguardando a JVM do Kafka inicializar (10s)..."
+sleep 10
 echo "Kafka está pronto!"
 
 # Função para limpar processos filhos quando o script for encerrado (Ctrl+C)
 cleanup() {
-    echo "Encerrando simulação e limpando processos..."
+    echo -e "\nEncerrando simulação do backend e limpando processos..."
     pkill -P $$
-    # FIX: Aponta diretamente para o compose file usando caminho absoluto
-    docker-compose -f "$SCRIPT_DIR/docker-compose.yml" down
+    docker compose -f "$SCRIPT_DIR/docker-compose.yaml" down
     exit 0
 }
 trap cleanup SIGINT SIGTERM
@@ -38,7 +42,7 @@ export KAFKA_TOPIC_TRANSACTIONS=transactions
 export PYTHONUNBUFFERED=1
 export PYTHONPATH=.
 
-# Ativa o ambiente virtual Python caso exista no SCRIPT_DIR
+# Ativa o ambiente virtual Python caso exista
 if [ -d ".venv" ]; then
     source .venv/bin/activate
 fi
@@ -51,28 +55,15 @@ MINER_ID=miner-a MINER_DIFFICULTY=5 python3 -m miner.miner &
 MINER_ID=miner-b MINER_DIFFICULTY=5 python3 -m miner.miner &
 MINER_ID=miner-c MINER_DIFFICULTY=5 python3 -m miner.miner &
 
-echo "Iniciando o Produtor de Transações (Seed 50)..."
+echo "Iniciando o Produtor de Transações aleatórias (Seed 50)..."
 python3 -m producer.generator --seed 50 &
 
-echo "Iniciando o Painel Frontend..."
-# Navega até o diretório do front e sobe o servidor Angular
-cd "../painel-blockchain-pow" || exit
-
-# Carrega o NVM para o npm funcionar no script bash não interativo
-if [ -f "$HOME/.nvm/nvm.sh" ]; then
-    source "$HOME/.nvm/nvm.sh"
-fi
-npm start -- --host 0.0.0.0 --port 4200 &
-
 echo "====================================================="
-echo "Simulação iniciada com sucesso!"
-echo "Acesse o painel em: http://localhost:4200"
-echo "Acesse a API em: http://localhost:8000"
+echo "Backend isolado iniciado com sucesso!"
+echo "Acesse a API Gateway em: http://localhost:8000"
 echo "Para encerrar completamente os processos, aperte Ctrl+C."
 echo "====================================================="
 
-# Aumentado para 15 segundos para dar tempo ao Angular de compilar
-(sleep 15 && python3 -m webbrowser "http://localhost:4200" 2>/dev/null) &
-
 # Espera os processos rodarem em segundo plano
 wait
+

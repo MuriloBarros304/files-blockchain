@@ -127,9 +127,9 @@ class Blockchain:
             raise Exception("Bloco inválido: deve haver exatamente uma " \
             "transação de recompensa.")
 
-        taxes = sum(t.fee for t in block.transactions)
+        taxes = sum(t.fee for t in block.transactions[1:])
         if block.transactions[0].sender != 'SYSTEM' \
-            or block.transactions[0].reward != (5.0 + taxes):
+            or abs(block.transactions[0].reward - (5.0 + taxes)) > 1e-9:
             raise Exception(f"Bloco inválido: a primeira transação deve ser a \
                             de recompensa ({5.0 + taxes}).")
 
@@ -171,16 +171,17 @@ class Blockchain:
                     return False
                 
             # Verifica se as transações deste bloco já estão presentes em blocos anteriores, o que não deveria acontecer
+            current_tx_hashes = {t.generate_hash() for t in current.transactions if t.sender != 'SYSTEM'}
             for b in chain[:i]:
                 for t in b.transactions:
-                    if t in current.transactions:
+                    if t.sender != 'SYSTEM' and t.generate_hash() in current_tx_hashes:
                         return False
         
         # Verifica se as transações de recompensa para mineradores estão corretas
         for block in chain[1:]: # Começa do bloco 1, pois o bloco 0 é o gênesis e não tem transações
-            taxes = sum(t.fee for t in block.transactions)
+            taxes = sum(t.fee for t in block.transactions[1:]) # Ignora coinbase na taxa
             if block.transactions[0].sender != 'SYSTEM' \
-                or block.transactions[0].reward != (5.0 + taxes):
+                or abs(block.transactions[0].reward - (5.0 + taxes)) > 1e-9:
                 return False
         
         return True
