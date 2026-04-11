@@ -52,7 +52,7 @@ class Mempool:
             tx_id = tx.generate_hash()
             self.tx_map.pop(tx_id, None)
 
-        # ⚠️ reconstruir heap (lazy removal)
+        # Reconstruir heap (lazy removal)
         self.pool = [
             (fee, count, tx_id)
             for (fee, count, tx_id) in self.pool

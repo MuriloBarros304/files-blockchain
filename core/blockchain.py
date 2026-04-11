@@ -28,7 +28,8 @@ class Blockchain:
         Cria o bloco gênesis, que é o primeiro bloco da cadeia.
         Ele não tem transações e seu hash anterior é '0'.
         """
-        genesis_block = Block(index=0, transactions=[], previous_hash='0', timestamp=0.0)
+        genesis_block = Block(index=0, transactions=[], previous_hash='0', 
+                              timestamp=0.0)
         genesis_block.mine_block(self.difficulty, miner_address='SYSTEM')
         self.chain.append(genesis_block)
 
@@ -54,15 +55,18 @@ class Blockchain:
             if self.get_balance(transaction.sender) >= tax:
                 self.mempool.append(transaction)
             else:
-                raise Exception("Saldo insuficiente para cobrir a recompensa e a taxa da transação")
+                raise Exception("Saldo insuficiente para cobrir a recompensa \
+                e a taxa da transação")
         except Exception as e:
             raise Exception(f"Transação inválida: {e}")
         
     def get_balance(self, public_key: str) -> float:
         """
-        Calcula o saldo de um usuário com base nas transações presentes na cadeia.
+        Calcula o saldo de um usuário com base nas transações presentes na 
+        cadeia.
         Args:
-            public_key (str): A chave pública do usuário para o qual o saldo deve ser calculado.
+            public_key (str): A chave pública do usuário para o qual o saldo \
+            deve ser calculado.
         Returns:
             float: O saldo do usuário.
         """
@@ -86,7 +90,8 @@ class Blockchain:
         Args:
             block (Block): O bloco a ser verificado.
         Returns:
-            bool: True se o bloco atende à condição de dificuldade, False caso contrário.
+            bool: True se o bloco atende à condição de dificuldade, False caso \
+                contrário.
         """
         target = '0' * self.difficulty
 
@@ -119,16 +124,19 @@ class Blockchain:
         rewards = [t for t in block.transactions if t.sender == 'SYSTEM']
         
         if len(rewards) != 1:
-            raise Exception("Bloco inválido: deve haver exatamente uma transação de recompensa.")
+            raise Exception("Bloco inválido: deve haver exatamente uma " \
+            "transação de recompensa.")
 
         taxes = sum(t.fee for t in block.transactions)
-        if block.transactions[0].sender != 'SYSTEM' or block.transactions[0].reward != (5.0 + taxes):
-            raise Exception(f"Bloco inválido: a primeira transação deve ser a de recompensa ({5.0 + taxes}).")
+        if block.transactions[0].sender != 'SYSTEM' \
+            or block.transactions[0].reward != (5.0 + taxes):
+            raise Exception(f"Bloco inválido: a primeira transação deve ser a \
+                            de recompensa ({5.0 + taxes}).")
 
         for transaction in block.transactions:
             if not transaction.validate():
                 raise Exception(
-                    f"Transação: {transaction.sender} -> {transaction.receiver} "
+                    f"Transação: {transaction.sender} -> {transaction.receiver}"
                     f"({transaction.timestamp}) inválida"
                 )
 
@@ -138,7 +146,8 @@ class Blockchain:
 
     def validate_chain(self, chain: list[Block]) -> bool:
         """
-        Valida uma cadeia de blocos, verificando a integridade de cada bloco e a validade das transações.
+        Valida uma cadeia de blocos, verificando a integridade de cada bloco e 
+        a validade das transações.
         Args:
             chain (list[Block]): A cadeia de blocos a ser validada.
         Returns:
@@ -170,18 +179,22 @@ class Blockchain:
         # Verifica se as transações de recompensa para mineradores estão corretas
         for block in chain[1:]: # Começa do bloco 1, pois o bloco 0 é o gênesis e não tem transações
             taxes = sum(t.fee for t in block.transactions)
-            if block.transactions[0].sender != 'SYSTEM' or block.transactions[0].reward != (5.0 + taxes):
+            if block.transactions[0].sender != 'SYSTEM' \
+                or block.transactions[0].reward != (5.0 + taxes):
                 return False
         
         return True
 
     def consensus(self, other_chains: list[list[Block]]) -> bool:
         """
-        Caso haja divergências entre cadeias, adota a cadeia mais longa e válida encontrada.
+        Caso haja divergências entre cadeias, adota a cadeia mais longa e 
+        válida encontrada.
         Args:
-            other_chains (list[list[Block]]): Outras cadeias de blocos a serem comparadas.
+            other_chains (list[list[Block]]): Outras cadeias de blocos a serem \
+                comparadas.
         Returns:
-            bool: True se a cadeia foi substituída por uma mais longa e válida, False caso contrário.
+            bool: True se a cadeia foi substituída por uma mais longa e \
+                válida, False caso contrário.
         """
         longest_chain = self.chain
 
@@ -192,11 +205,13 @@ class Blockchain:
         # Se a cadeia mais longa encontrada for diferente da cadeia atual, substitui a cadeia atual pela mais longa
         if longest_chain != self.chain:
             orphan_blocks = [b for b in self.chain if b not in longest_chain] # Blocos que estão na cadeia mais curta mas não estão na mais longa
-            all_transactions_in_longest = [t for b in longest_chain for t in b.transactions] # Transações que já estão na cadeia mais longa
+            all_transactions_in_longest = \
+                [t for b in longest_chain for t in b.transactions] # Transações que já estão na cadeia mais longa
             orphan_transactions = [ob.transactions for ob in orphan_blocks] # Transações que estavam nos blocos órfãos, que precisam ser recolocadas na mempool
             for ot in orphan_transactions:
                 for t in ot:
-                    if t not in self.mempool and t not in all_transactions_in_longest: # Se não já está na mempool ou na cadeia mais longa
+                    if t not in self.mempool \
+                        and t not in all_transactions_in_longest: # Se não já está na mempool ou na cadeia mais longa
                         self.mempool.append(t) # Recoloca as transações dos blocos órfãos de volta na mempool
 
             self.chain = longest_chain

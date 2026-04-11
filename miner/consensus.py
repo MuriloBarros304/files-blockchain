@@ -25,9 +25,9 @@ class ConsensusManager:
         self.active_chain_hashes: list[str] = []
         self.active_tip_hash = ''
         
-        self._registrar_genesis_local()
+        self._write_local_genesis()
 
-    def _registrar_genesis_local(self) -> None:
+    def _write_local_genesis(self) -> None:
         genesis = self.blockchain.chain[0]
         genesis_hash = genesis.hash
         if not isinstance(genesis_hash, str):
@@ -35,11 +35,11 @@ class ConsensusManager:
 
         self.known_blocks[genesis_hash] = genesis
         self.children_by_parent[genesis.previous_hash].add(genesis_hash)
-        self.cumulative_work_by_hash[genesis_hash] = self._trabalho_do_bloco(genesis)
+        self.cumulative_work_by_hash[genesis_hash] = self._block_digest(genesis)
         self.active_chain_hashes = [genesis_hash]
         self.active_tip_hash = genesis_hash
 
-    def _trabalho_do_bloco(self, block: Block) -> int:
+    def _block_digest(self, block: Block) -> int:
         block_hash = block.hash
         if not isinstance(block_hash, str):
             return 0
@@ -53,27 +53,27 @@ class ConsensusManager:
         # Aproxima o trabalho acumulado: mais zeros iniciais => maior trabalho.
         return 16 ** zeros
 
-    def _obter_caminho_hashes(self, tip_hash: str) -> list[str]:
-        caminho_reverso: list[str] = []
-        visitados: set[str] = set()
-        atual_hash = tip_hash
+    def _get_path_hashes(self, tip_hash: str) -> list[str]:
+        reverse_path: list[str] = []
+        visited: set[str] = set()
+        current_hash = tip_hash
 
-        while atual_hash and atual_hash not in visitados:
-            visitados.add(atual_hash)
-            bloco = self.known_blocks.get(atual_hash)
-            if bloco is None:
+        while current_hash and current_hash not in visited:
+            visited.add(current_hash)
+            block = self.known_blocks.get(current_hash)
+            if block is None:
                 break
 
-            caminho_reverso.append(atual_hash)
-            if bloco.previous_hash == '0':
+            reverse_path.append(current_hash)
+            if block.previous_hash == '0':
                 break
 
-            atual_hash = bloco.previous_hash
+            current_hash = block.previous_hash
 
-        caminho_reverso.reverse()
-        return caminho_reverso
+        reverse_path.reverse()
+        return reverse_path
 
-    def _obter_ancora_finalizacao(self) -> tuple[int, str] | None:
+    def _get_root_finalization(self) -> tuple[int, str] | None:
         if self.finalization_confirmations <= 0:
             return None
 
@@ -88,8 +88,8 @@ class ConsensusManager:
 
         return anchor_block.index, anchor_hash
 
-    def _cadeia_respeita_finalizacao(self, chain_hashes: list[str]) -> bool:
-        anchor = self._obter_ancora_finalizacao()
+    def _chain_respect_finalization(self, chain_hashes: list[str]) -> bool:
+        anchor = self._get_root_finalization()
         if anchor is None:
             return True
 
@@ -99,21 +99,21 @@ class ConsensusManager:
 
         return chain_hashes[anchor_index] == anchor_hash
 
-    def _ramo_respeita_finalizacao(self, tip_hash: str) -> bool:
-        branch_hashes = self._obter_caminho_hashes(tip_hash)
-        return self._cadeia_respeita_finalizacao(branch_hashes)
+    def _branch_respect_finalization(self, tip_hash: str) -> bool:
+        branch_hashes = self._get_path_hashes(tip_hash)
+        return self._chain_respect_finalization(branch_hashes)
 
-    def _obter_melhor_ponta_hash(self) -> str:
+    def _get_best_block_hash(self) -> str:
         hashes_com_filho: set[str] = set()
-        for bloco in self.known_blocks.values():
-            if bloco.previous_hash in self.known_blocks:
-                hashes_com_filho.add(bloco.previous_hash)
+        for block in self.known_blocks.values():
+            if block.previous_hash in self.known_blocks:
+                hashes_com_filho.add(block.previous_hash)
 
         pontas = [block_hash for block_hash in self.known_blocks if block_hash not in hashes_com_filho]
         if not pontas:
             return self.active_tip_hash
 
-        pontas_validas = [block_hash for block_hash in pontas if self._ramo_respeita_finalizacao(block_hash)]
+        pontas_validas = [block_hash for block_hash in pontas if self._branch_respect_finalization(block_hash)]
         if pontas_validas:
             pontas = pontas_validas
         elif self.active_tip_hash:
@@ -128,7 +128,7 @@ class ConsensusManager:
             ),
         )
 
-    def _validar_bloco_para_rede(self, block: Block, parent: Block | None) -> bool:
+    def _validate_block_for_network(self, block: Block, parent: Block | None) -> bool:
         block_hash = block.hash
         if not isinstance(block_hash, str):
             return False
@@ -164,54 +164,54 @@ class ConsensusManager:
 
         return True
 
-    def tx_ids_da_cadeia(self, chain_hashes: list[str]) -> set[str]:
+    def tx_ids_from_chain(self, chain_hashes: list[str]) -> set[str]:
         tx_ids: set[str] = set()
         for block_hash in chain_hashes:
-            bloco = self.known_blocks.get(block_hash)
-            if not bloco:
+            block = self.known_blocks.get(block_hash)
+            if not block:
                 continue
-            for tx in bloco.transactions:
+            for tx in block.transactions:
                 if tx.sender != 'SYSTEM':
                     tx_ids.add(tx.generate_hash())
         return tx_ids
 
-    def resolver_conflitos(self) -> bool:
+    def resolve(self) -> bool:
         """
         Consenso local por trabalho acumulado: escolhe a melhor ponta entre os
         ramos conhecidos e reorganiza para a cadeia vencedora quando necessário.
         """
-        melhor_ponta_hash = self._obter_melhor_ponta_hash()
-        if not melhor_ponta_hash:
+        best_block_hash = self._get_best_block_hash()
+        if not best_block_hash:
             return False
 
-        nova_cadeia_hashes = self._obter_caminho_hashes(melhor_ponta_hash)
-        if not nova_cadeia_hashes:
+        new_chain_hashes = self._get_path_hashes(best_block_hash)
+        if not new_chain_hashes:
             return False
 
-        if not self._cadeia_respeita_finalizacao(nova_cadeia_hashes):
+        if not self._chain_respect_finalization(new_chain_hashes):
             return False
 
-        nova_cadeia = [self.known_blocks[block_hash] for block_hash in nova_cadeia_hashes if block_hash in self.known_blocks]
-        if not nova_cadeia:
+        new_chain = [self.known_blocks[block_hash] for block_hash in new_chain_hashes if block_hash in self.known_blocks]
+        if not new_chain:
             return False
 
-        if not self.blockchain.validate_chain(nova_cadeia):
+        if not self.blockchain.validate_chain(new_chain):
             return False
 
         cadeia_antiga_hashes = list(self.active_chain_hashes)
-        if cadeia_antiga_hashes == nova_cadeia_hashes:
-            self.blockchain.chain = nova_cadeia
+        if cadeia_antiga_hashes == new_chain_hashes:
+            self.blockchain.chain = new_chain
             return False
 
-        foi_reorg_real = not (
-            len(nova_cadeia_hashes) >= len(cadeia_antiga_hashes)
-            and nova_cadeia_hashes[: len(cadeia_antiga_hashes)] == cadeia_antiga_hashes
+        was_reorg = not (
+            len(new_chain_hashes) >= len(cadeia_antiga_hashes)
+            and new_chain_hashes[: len(cadeia_antiga_hashes)] == cadeia_antiga_hashes
         )
 
-        tx_ids_nova_cadeia = self.tx_ids_da_cadeia(nova_cadeia_hashes)
+        tx_ids_nova_cadeia = self.tx_ids_from_chain(new_chain_hashes)
 
         # Transações de blocos órfãos retornam para mempool se não estiverem na nova cadeia.
-        for orphan_hash in set(cadeia_antiga_hashes) - set(nova_cadeia_hashes):
+        for orphan_hash in set(cadeia_antiga_hashes) - set(new_chain_hashes):
             orphan_block = self.known_blocks.get(orphan_hash)
             if not orphan_block:
                 continue
@@ -223,30 +223,30 @@ class ConsensusManager:
                     self.mempool.add_tx(tx)
 
         # Remove da mempool o que já está confirmado na nova cadeia principal.
-        txs_confirmadas = []
-        for block_hash in nova_cadeia_hashes:
+        txs_confirmed = []
+        for block_hash in new_chain_hashes:
             block = self.known_blocks.get(block_hash)
             if not block:
                 continue
-            txs_confirmadas.extend(tx for tx in block.transactions if tx.sender != 'SYSTEM')
-        if txs_confirmadas:
-            self.mempool.remove_transactions(txs_confirmadas)
+            txs_confirmed.extend(tx for tx in block.transactions if tx.sender != 'SYSTEM')
+        if txs_confirmed:
+            self.mempool.remove_transactions(txs_confirmed)
 
-        self.blockchain.chain = nova_cadeia
-        self.active_chain_hashes = nova_cadeia_hashes
-        self.active_tip_hash = melhor_ponta_hash
+        self.blockchain.chain = new_chain
+        self.active_chain_hashes = new_chain_hashes
+        self.active_tip_hash = best_block_hash
 
         # Interrompe mineração em andamento para retomar sobre a nova ponta.
         self.stop_mining_event.set()
 
-        if foi_reorg_real:
+        if was_reorg:
             print(
-                f"🔁 Reorganizacao local: nova ponta #{nova_cadeia[-1].index} "
-                f"({melhor_ponta_hash[:10]})"
+                f"Reorganizacao local: nova ponta #{new_chain[-1].index} "
+                f"({best_block_hash[:10]})"
             )
         return True
 
-    def integrar_bloco(self, block: Block) -> bool:
+    def integrate_block(self, block: Block) -> bool:
         block_hash = block.hash
         if not isinstance(block_hash, str):
             return False
@@ -261,25 +261,27 @@ class ConsensusManager:
                 self.pending_blocks_by_parent[block.previous_hash].append(block)
                 return False
 
-            if not self._ramo_respeita_finalizacao(block.previous_hash):
+            if not self._branch_respect_finalization(block.previous_hash):
                 print(
-                    f"⛔ Bloco #{block.index} ignorado: ramo fora da janela "
-                    f"de finalizacao ({self.finalization_confirmations} confirmacoes)."
+                    f"Bloco #{block.index} ignorado: ramo fora da janela \
+                    de finalizacao ({self.finalization_confirmations} \
+                        confirmacoes)."
                 )
                 return False
 
-        if not self._validar_bloco_para_rede(block, parent):
+        if not self._validate_block_for_network(block, parent):
             return False
 
         parent_work = self.cumulative_work_by_hash.get(block.previous_hash, 0)
         self.known_blocks[block_hash] = block
         self.children_by_parent[block.previous_hash].add(block_hash)
-        self.cumulative_work_by_hash[block_hash] = parent_work + self._trabalho_do_bloco(block)
+        self.cumulative_work_by_hash[block_hash] = parent_work \
+            + self._block_digest(block)
 
         # Tenta encaixar blocos pendentes cujo pai acabou de chegar.
         pending_children = self.pending_blocks_by_parent.pop(block_hash, [])
         for child in pending_children:
-            self.integrar_bloco(child)
+            self.integrate_block(child)
 
-        self.resolver_conflitos()
+        self.resolve()
         return True

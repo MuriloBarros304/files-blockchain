@@ -6,12 +6,13 @@ import base64
 
 class Transaction:
     """
-    Classe que representa uma transação de transferência de acesso a um arquivo na blockchain
+    Classe que representa uma transação de transferência de acesso a um arquivo 
+    na blockchain
     """
     def __init__(
-            self, sender_public_key: str, receiver_public_key: str, file_uri: str,
-            encrypted_access_key: str, signature: str | None=None, reward: float=0.0,
-            fee: float=0.0
+            self, sender_public_key: str, receiver_public_key: str,
+            file_uri: str, encrypted_access_key: str,
+            signature: str | None=None, reward: float=0.0, fee: float=0.0
         ) -> None:
         self.sender: str = sender_public_key
         self.receiver: str = receiver_public_key
@@ -24,11 +25,13 @@ class Transaction:
 
     def generate_hash(self) -> str:
         """
-        Gera o hash da transação com base em seus dados atuais (remetente, destinatário, URI do arquivo, chave criptografada e timestamp).
+        Gera o hash da transação com base em seus dados atuais (remetente, 
+        destinatário, URI do arquivo, chave criptografada e timestamp).
         Returns:
             str: O hash SHA-256 da transação.
         """
-        metadata = f"{self.sender}{self.receiver}{self.file_uri}{self.encrypted_key}{self.timestamp}{self.reward}{self.fee}"
+        metadata = f"{self.sender}{self.receiver}{self.file_uri}\
+            {self.encrypted_key}{self.timestamp}{self.reward}{self.fee}"
         encoded_metadata = metadata.encode('utf-8')
 
         hash_obj = hashlib.sha256()
@@ -39,6 +42,8 @@ class Transaction:
     def validate(self) -> bool:
         """
         Valida a transação verificando a assinatura
+        Returns:
+            bool: True se a transação for válida, False caso contrário.
         """
         if self.sender is None:
             return False
@@ -62,16 +67,16 @@ class Transaction:
             message = self.generate_hash().encode('utf-8')
             
             # Verifica a assinatura
-            public_key.verify(
+            public_key.verify( # type: ignore
                 signature,
                 message,
-                padding.PSS(
+                padding.PSS( # type: ignore
                     mgf=padding.MGF1(hashes.SHA256()),
                     salt_length=padding.PSS.MAX_LENGTH
                 ),
-                hashes.SHA256()
+                hashes.SHA256() # type: ignore
             )
             return True
         except Exception as e:
-            print(f"❌ Erro na validação da assinatura: {e}")
+            print(f"-> Erro na validação da assinatura: {e}")
             return False

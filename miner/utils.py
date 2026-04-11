@@ -12,7 +12,8 @@ def ler_int_env(nome: str, min_value: int = 1) -> int | None:
     try:
         valor = int(valor_raw)
     except ValueError as exc:
-        raise ValueError(f"{nome} deve ser um inteiro, recebido: {valor_raw!r}") from exc
+        raise ValueError(f"{nome} deve ser um inteiro, recebido: \
+                        {valor_raw!r}") from exc
 
     if valor < min_value:
         raise ValueError(f"{nome} deve ser >= {min_value}, recebido: {valor}")

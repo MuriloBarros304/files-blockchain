@@ -35,7 +35,7 @@ def test_blockchain_initialization(blockchain):
 def test_difficulty_property_validation(blockchain):
     # Testa se o setter bloqueia tipos incorretos
     with pytest.raises(ValueError, match="Dificuldade deve ser um inteiro"):
-        blockchain.difficulty = "3" # Tipo string ao invés de int
+        blockchain.difficulty = "1" # Tipo string ao invés de int
 
 # --- TESTES DE TRANSAÇÃO E ECONOMIA ---
 
@@ -118,7 +118,7 @@ def test_add_block_invalid_coinbase_reward(blockchain):
     new_block.transactions[0].reward = 100.0
     
     # A rede deve pegar a fraude e rejeitar o bloco
-    with pytest.raises(Exception, match="Bloco inválido: a primeira transação deve ser a de recompensa"):
+    with pytest.raises(Exception, match="Bloco inválido: a primeira transação deve ser a.*de recompensa"):
         blockchain.add_block(new_block)
 
 @patch('core.transaction.Transaction.validate', return_value=True)

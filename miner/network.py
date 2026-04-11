@@ -53,7 +53,7 @@ class MinerNetwork:
             block_dict['mempool_size'] = mempool_size
 
         self.block_producer.send(self.blocks_topic, block_dict)
-        print(f"📢 Bloco #{block.index} anunciado à rede!")
+        print(f"Bloco #{block.index} anunciado à rede!")
 
     def reconstruct_transaction(self, tx_data: dict) -> Transaction:
         tx = Transaction(
@@ -99,11 +99,11 @@ class MinerNetwork:
                     continue
 
                 with self.mining_lock:
-                    if self.consensus_manager.integrar_bloco(new_block):
-                        print(f"✅ Bloco #{new_block.index} recebido da rede e integrado.")
+                    if self.consensus_manager.integrate_block(new_block):
+                        print(f"Bloco #{new_block.index} recebido da rede e integrado.")
                             
         except Exception as e:
-            print(f"❌ Erro no block_listener: {e}")
+            print(f"-> Erro no block_listener: {e}")
 
     def transaction_listener(self):
         """Consome transações da rede."""
@@ -121,8 +121,9 @@ class MinerNetwork:
                 with self.mining_lock:
                     new_tx = self.reconstruct_transaction(tx_data)
                     if self.mempool.add_tx(new_tx):
-                        print(f"📥 TX recebida. Mempool: {len(self.mempool)}")
+                        print(f"Transação recebida. \
+                            Mempool: {len(self.mempool)}")
         except KeyboardInterrupt:
             pass
         except Exception as e:
-            print(f"❌ Erro no transaction_listener: {e}")
+            print(f"-> Erro no transaction_listener: {e}")

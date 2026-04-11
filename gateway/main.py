@@ -41,14 +41,15 @@ async def lifespan(_: FastAPI) -> AsyncGenerator[None, None]:
     # Inicializa o Producer Kafka com as configurações do gateway
     tx_producer = KafkaProducer(
         bootstrap_servers=settings.kafka_bootstrap_servers.split(','),
-        value_serializer=lambda v: json.dumps(v, ensure_ascii=False).encode('utf-8')
+        value_serializer=lambda v: json.dumps(v, ensure_ascii=False).\
+            encode('utf-8')
     )
     
     await kafka_pump.iniciar()
     try:
         yield
     finally:
-        await kafka_pump.parar()
+        await kafka_pump.stop()
         if tx_producer is not None:
             tx_producer.close()
 
@@ -68,7 +69,7 @@ app.add_middleware(
 )
 
 
-def _formatar_sse(event: dict[str, Any]) -> str:
+def _format_sse(event: dict[str, Any]) -> str:
     event_name = event.get('type', 'message')
     data = json.dumps(event, ensure_ascii=False)
     return f'event: {event_name}\ndata: {data}\n\n'
@@ -78,65 +79,78 @@ def _formatar_sse(event: dict[str, Any]) -> str:
 async def healthz() -> dict[str, Any]:
     return {
         'status': 'ok',
-        'kafka_consumindo': kafka_pump.em_execucao,
-        'kafka_conectado': kafka_pump.kafka_conectado,
+        'kafka_consumindo': kafka_pump.running,
+        'kafka_conectado': kafka_pump.is_connected,
         'clientes_conectados': await broadcaster.quantidade_clientes(),
     }
 
 
 @app.get('/snapshot')
 async def snapshot() -> dict[str, Any]:
-    return await chain_state.gerar_snapshot()
+    return await chain_state.generate_snapshot()
 
 
 @app.get('/events/chain')
 async def events_chain(request: Request) -> StreamingResponse:
-    client_id, queue = await broadcaster.registrar_cliente()
-    snapshot_event = await chain_state.gerar_snapshot()
+    client_id, queue = await broadcaster.append_client()
+    snapshot_event = await chain_state.generate_snapshot()
 
     async def event_generator() -> AsyncGenerator[str, None]:
         try:
-            yield _formatar_sse(snapshot_event)
+            yield _format_sse(snapshot_event)
 
             while True:
                 if await request.is_disconnected():
                     break
 
                 try:
-                    event = await asyncio.wait_for(queue.get(), timeout=settings.heartbeat_seconds)
-                    yield _formatar_sse(event)
+                    event = await asyncio.wait_for(
+                        queue.get(),
+                        timeout=settings.heartbeat_seconds
+                        )
+                    yield _format_sse(event)
                 except asyncio.TimeoutError:
                     yield ': keepalive\n\n'
         finally:
-            await broadcaster.remover_cliente(client_id)
+            await broadcaster.remove_client(client_id)
 
     headers = {
         'Cache-Control': 'no-cache',
         'Connection': 'keep-alive',
         'X-Accel-Buffering': 'no',
     }
-    return StreamingResponse(event_generator(), media_type='text/event-stream', headers=headers)
+    return StreamingResponse(
+        event_generator(),
+        media_type='text/event-stream',
+        headers=headers
+        )
 
 
 @app.websocket('/ws/chain')
 async def ws_chain(websocket: WebSocket) -> None:
     await websocket.accept()
 
-    client_id, queue = await broadcaster.registrar_cliente()
+    client_id, queue = await broadcaster.append_client()
 
     try:
-        await websocket.send_json(await chain_state.gerar_snapshot())
+        await websocket.send_json(await chain_state.generate_snapshot())
 
         while websocket.application_state == WebSocketState.CONNECTED:
             try:
-                event = await asyncio.wait_for(queue.get(), timeout=settings.heartbeat_seconds)
+                event = await asyncio.wait_for(
+                    queue.get(),
+                    timeout=settings.heartbeat_seconds
+                    )
                 await websocket.send_json(event)
             except asyncio.TimeoutError:
-                await websocket.send_json({'type': 'heartbeat', 'timestamp': int(time.time())})
+                await websocket.send_json(
+                    {'type': 'heartbeat',
+                    'timestamp': int(time.time())}
+                    )
     except WebSocketDisconnect:
         logger.info('Cliente websocket desconectado: %s', client_id)
     finally:
-        await broadcaster.remover_cliente(client_id)
+        await broadcaster.remove_client(client_id)
 
 
 @app.post('/transactions')
@@ -152,7 +166,8 @@ async def post_transaction(request: Request) -> dict[str, Any]:
         # Força o flush para garantir recebimento em ambientes rápidos
         tx_producer.flush()
         
-        logger.info(f"Transação publicada com sucesso no Kafka. Tópico: {settings.kafka_topic_transactions}")
+        logger.info(f"Transação publicada com sucesso no Kafka.\
+                    Tópico: {settings.kafka_topic_transactions}")
         
     except Exception as e:
         logger.error(f"Erro ao publicar transação: {e}")

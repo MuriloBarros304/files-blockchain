@@ -6,3 +6,7 @@ pluggy==1.6.0
 pycparser==3.0
 Pygments==2.19.2
 pytest==9.0.2
+fastapi==0.111.1
+uvicorn[standard]==0.30.3
+aiokafka==0.10.0
+python-dotenv==1.0.1

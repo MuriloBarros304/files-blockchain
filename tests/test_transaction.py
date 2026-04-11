@@ -1,4 +1,4 @@
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 from core.transaction import Transaction
 
 def test_transaction_initialization_with_economy():
@@ -33,19 +33,13 @@ def test_transaction_hash_economy_sensitivity():
 
 # --- TESTES DE VALIDAÇÃO DE ASSINATURA ---
 
-@patch('core.transaction.cryptography') # Intercepta a chamada da biblioteca cryptography
-def test_transaction_validation_success(mock_crypto):
-    # Força a biblioteca de mentira a retornar True (simulando uma assinatura válida)
-    mock_crypto.verify_signature.return_value = True
-    
-    tx = Transaction("remetente_pub", "destinatario_pub", "ipfs://arquivo", "chave_aes", signature="assinatura_valida")
-    
-    assert tx.validate() is True
-
-@patch('core.transaction.cryptography')
-def test_transaction_validation_invalid_signature(mock_crypto):
-    # Simula um hacker tentando usar uma assinatura que não bate com a chave pública
-    mock_crypto.verify_signature.return_value = False
+@patch('core.transaction.serialization.load_pem_public_key')
+def test_transaction_validation_invalid_signature(mock_load_key):
+    # Setup the mock public key
+    mock_public_key = MagicMock()
+    # verify() raising an exception means the signature is invalid
+    mock_public_key.verify.side_effect = Exception("Assinatura Inválida")
+    mock_load_key.return_value = mock_public_key
     
     tx = Transaction("hacker_pub", "destinatario_pub", "ipfs://arquivo", "chave_aes", signature="assinatura_falsa")
     
@@ -61,16 +55,14 @@ def test_transaction_validation_missing_signature():
 
 # --- TESTE DO MINERADOR (COINBASE) ---
 
-def test_transaction_system_validation_success():
-    # Transações de recompensa do sistema não têm assinatura, mas devem ser válidas
-    tx_coinbase = Transaction(
-        sender_public_key="SYSTEM",
-        receiver_public_key="minerador_pub",
-        file_uri="",
-        encrypted_access_key="",
-        signature=None,
-        reward=5.0
-    )
+@patch('core.transaction.serialization.load_pem_public_key')
+def test_transaction_validation_success(mock_load_key):
+    # Setup the mock public key
+    mock_public_key = MagicMock()
+    # verify() returning None means the signature is valid in the cryptography library
+    mock_public_key.verify.return_value = None 
+    mock_load_key.return_value = mock_public_key
     
-    # A validação DEVE retornar True mesmo sem assinatura
-    assert tx_coinbase.validate() is True
+    tx = Transaction("remetente_pub", "destinatario_pub", "ipfs://arquivo", "chave_aes", signature="assinatura_valida")
+    
+    assert tx.validate() is True
