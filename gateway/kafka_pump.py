@@ -9,7 +9,7 @@ from aiokafka import AIOKafkaConsumer
 
 from .broadcaster import EventBroadcaster
 from .config import GatewaySettings
-from .normalizer import normalizar_evento_kafka
+from .normalizer import normalize_kafka_event
 from .state import ChainState
 
 logger = logging.getLogger(__name__)
@@ -22,21 +22,21 @@ class KafkaEventPump:
         self._broadcaster = broadcaster
         self._consumer: AIOKafkaConsumer | None = None
         self._runner_task: asyncio.Task[None] | None = None
-        self._kafka_conectado = False
+        self._is_kafka_connected = False
 
     @property
-    def em_execucao(self) -> bool:
+    def running(self) -> bool:
         return self._runner_task is not None and not self._runner_task.done()
 
     @property
-    def kafka_conectado(self) -> bool:
-        return self._kafka_conectado
+    def is_connected(self) -> bool:
+        return self._is_kafka_connected
 
     async def iniciar(self) -> None:
-        if not self.em_execucao:
-            self._runner_task = asyncio.create_task(self._executar_com_reconexao(), name='kafka-gateway-runner')
+        if not self.running:
+            self._runner_task = asyncio.create_task(self._run_with_rejoin(), name='kafka-gateway-runner')
 
-    async def parar(self) -> None:
+    async def stop(self) -> None:
         if self._runner_task is not None:
             self._runner_task.cancel()
             try:
@@ -44,22 +44,22 @@ class KafkaEventPump:
             except asyncio.CancelledError:
                 pass
             self._runner_task = None
-        await self._desconectar_consumer()
+        await self._disconnect_consumer()
 
-    async def _executar_com_reconexao(self) -> None:
+    async def _run_with_rejoin(self) -> None:
         while True:
             try:
-                await self._conectar_consumer()
-                await self._loop_consumo()
+                await self._connect_consumer()
+                await self._loop_consumer()
             except asyncio.CancelledError:
                 raise
             except Exception:
                 logger.exception('Falha no loop de consumo Kafka; nova tentativa em %ss', self._settings.kafka_reconnect_seconds)
             finally:
-                await self._desconectar_consumer()
+                await self._disconnect_consumer()
             await asyncio.sleep(self._settings.kafka_reconnect_seconds)
 
-    async def _conectar_consumer(self) -> None:
+    async def _connect_consumer(self) -> None:
         if self._consumer is not None:
             return
 
@@ -93,18 +93,18 @@ class KafkaEventPump:
             *topics,
             **kwargs,
         )
-        await self._consumer.start()
-        self._kafka_conectado = True
+        await self._consumer.start() # type: ignore
+        self._is_kafka_connected = True
         logger.info('Kafka consumer conectado ao broker %s', self._settings.kafka_bootstrap_servers)
 
-    async def _desconectar_consumer(self) -> None:
+    async def _disconnect_consumer(self) -> None:
         if self._consumer is not None:
             await self._consumer.stop()
             logger.info('Kafka consumer finalizado')
             self._consumer = None
-        self._kafka_conectado = False
+        self._is_kafka_connected = False
 
-    async def _loop_consumo(self) -> None:
+    async def _loop_consumer(self) -> None:
         assert self._consumer is not None
         async for message in self._consumer:
             try:
@@ -112,11 +112,11 @@ class KafkaEventPump:
                 if payload is None:
                     continue
 
-                event = normalizar_evento_kafka(message.topic, payload)
+                event = normalize_kafka_event(message.topic, payload)
                 if event is None:
                     continue
 
-                applied_event = await self._chain_state.aplicar_evento(event)
+                applied_event = await self._chain_state.apply_event(event)
                 if applied_event is None:
                     continue
 
@@ -127,7 +127,7 @@ class KafkaEventPump:
                         'source_offset': message.offset,
                     }
                 )
-                await self._broadcaster.transmitir(applied_event)
+                await self._broadcaster.broadcast(applied_event)
             except Exception:
                 logger.exception('Falha ao processar mensagem Kafka')
 

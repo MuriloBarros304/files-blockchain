@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 
-def _tipo_evento(topic: str, payload: dict[str, Any]) -> str | None:
+def _event_type(topic: str, payload: dict[str, Any]) -> str | None:
     for key in ('type', 'event'):
         value = payload.get(key)
         if isinstance(value, str) and value:
@@ -16,7 +16,7 @@ def _tipo_evento(topic: str, payload: dict[str, Any]) -> str | None:
     return None
 
 
-def _eh_payload_bloco(payload: dict[str, Any]) -> bool:
+def _is_payload_block(payload: dict[str, Any]) -> bool:
     index = payload.get('index')
     return (
         isinstance(index, int)
@@ -26,11 +26,11 @@ def _eh_payload_bloco(payload: dict[str, Any]) -> bool:
     )
 
 
-def normalizar_evento_kafka(topic: str, payload: Any) -> dict[str, Any] | None:
+def normalize_kafka_event(topic: str, payload: Any) -> dict[str, Any] | None:
     if not isinstance(payload, dict):
         return None
 
-    event_type = _tipo_evento(topic, payload)
+    event_type = _event_type(topic, payload)
 
     if not event_type:
         return None
@@ -47,7 +47,7 @@ def normalizar_evento_kafka(topic: str, payload: Any) -> dict[str, Any] | None:
             normalized['block'] = block
             return normalized
 
-        if _eh_payload_bloco(payload):
+        if _is_payload_block(payload):
             return {
                 'type': 'new_block',
                 'block': payload,
@@ -57,13 +57,17 @@ def normalizar_evento_kafka(topic: str, payload: Any) -> dict[str, Any] | None:
         return None
 
     if event_type == 'mempool_update':
-        if 'size' not in normalized and isinstance(normalized.get('mempool_size'), int):
+        if 'size' not in normalized \
+            and isinstance(normalized.get('mempool_size'), int):
             normalized['size'] = normalized['mempool_size']
         return normalized
 
     if event_type in {'transaction', 'new_transaction', 'transaction_received'}:
         if isinstance(normalized.get('mempool_size'), int):
-            return {'type': 'mempool_update', 'size': normalized['mempool_size']}
+            return {
+                'type': 'mempool_update',
+                'size': normalized['mempool_size']
+                }
         return {'type': 'mempool_delta', 'delta': 1, 'transaction': normalized}
 
     return normalized

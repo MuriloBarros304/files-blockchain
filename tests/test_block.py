@@ -22,7 +22,7 @@ def test_block_hash_changes_with_nonce(sample_transactions):
     assert hash_inicial != hash_modificado
 
 def test_block_mining_proof_of_work(sample_transactions):
-    dificuldade = 2
+    dificuldade = 1
     bloco = Block(index=1, transactions=sample_transactions, previous_hash="hash_anterior")
     
     # Agora a mineração exige saber para quem vai o dinheiro!

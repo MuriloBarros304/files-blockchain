@@ -106,11 +106,18 @@ class Miner:
                             self.current_mining_block_index = None
                             should_wait_for_txs = True
                         else:
-                            new_block = Block(
-                                index=next_index,
-                                transactions=txs_to_mine.copy(),
-                                previous_hash=latest_block.hash
-                            )
+                            try:
+                                new_block = Block(
+                                    index=next_index,
+                                    transactions=txs_to_mine.copy(),
+                                    previous_hash=latest_block.hash
+                                )
+                            except Exception as e:
+                                print(f"-> Erro ao criar novo bloco: {e}")
+                                traceback.print_exc()
+                                self.current_mining_block_index = None
+                                should_wait_for_txs = True
+                                continue
 
                             total_fee = sum(t.fee for t in txs_to_mine)
                             reward = 5.0 + total_fee
@@ -127,7 +134,7 @@ class Miner:
                     time.sleep(0.25)
                     continue
 
-                print(f"🔨 Minerando bloco #{next_index}...")
+                print(f"Minerando bloco #{next_index}...")
                 bloco_confirmado = False
 
                 while not self.stop_mining_event.is_set():
@@ -139,25 +146,32 @@ class Miner:
                         with self.mining_lock:
                             latest_block = self.blockchain.get_latest_block()
                             if new_block.previous_hash != latest_block.hash:
-                                print("⚠️ Bloco minerado em ponta antiga; tentando integrar como fork...")
+                                print("Bloco minerado em ponta antiga; tentando integrar como fork...")
 
                             try:
-                                if self.consensus_manager.integrar_bloco(new_block):
+                                if self.consensus_manager.integrate_block(new_block):
                                     bloco_confirmado = True
-                                    print(f"🏆 BLOCO #{next_index} MINERADO COM SUCESSO!")
+                                    print(f"BLOCO #{next_index} MINERADO COM SUCESSO!")
                                     self.network.announce_block(new_block, mempool_size=len(self.mempool))
                                 else:
-                                    print(f"⚠️ Bloco #{next_index} minerado, mas não integrado (corrida/rede).")
+                                    print(f"Bloco #{next_index} minerado, mas não integrado (corrida/rede).")
                             except Exception as e:
-                                print(f"⚠️ Erro ao integrar bloco minerado: {e}")
+                                print(f"-> Erro ao integrar bloco minerado: {e}")
 
+                        # Garante que a flag seja checada se confirmou
                         break
 
                     new_block.nonce += 1
+                    
+                    # Cede CPU ocasionalmente para que a thread da rede consiga processar blocos de outros nós
+                    if new_block.nonce % (1000 * self.blockchain.difficulty) == 0:
+                        time.sleep(0)
 
                 if not bloco_confirmado:
+                    if self.stop_mining_event.is_set():
+                        print("Mineração interrompida: novo bloco recebido na rede. Minerador atualizando seu último bloco...")
                     with self.mining_lock:
-                        tx_ids_confirmadas = self.consensus_manager.tx_ids_da_cadeia(self.consensus_manager.active_chain_hashes)
+                        tx_ids_confirmadas = self.consensus_manager.tx_ids_from_chain(self.consensus_manager.active_chain_hashes)
                         for tx in txs_to_mine:
                             if tx.generate_hash() not in tx_ids_confirmadas:
                                 self.mempool.add_tx(tx)
@@ -165,7 +179,7 @@ class Miner:
                 self.current_mining_block_index = None
 
             except Exception as e:
-                print(f"❌ Erro no mining_worker: {e}")
+                print(f"-> Erro no mining_worker: {e}")
                 traceback.print_exc()
 
             time.sleep(0.1)
@@ -174,7 +188,7 @@ class Miner:
         """Inicia todos os processos do minerador."""
         print("=" * 60)
         print(
-            f"🪙 MINERADOR ONLINE | ID: {self.miner_id[:8]} | "
+            f"MINERADOR ONLINE | ID: {self.miner_id[:8]} | "
             f"Dificuldade: {self.blockchain.difficulty} | "
             f"Finalizacao: {self.finalization_confirmations}"
         )
@@ -184,7 +198,7 @@ class Miner:
         threading.Thread(target=self.mining_worker, daemon=True).start()
 
         # Roda o consumidor de transações na thread principal
-        print("\n🛑 Pressione Ctrl+C para encerrar...")
+        print("\nPressione Ctrl+C para encerrar...")
         self.network.transaction_listener()
 
 if __name__ == "__main__":
