@@ -57,7 +57,7 @@ class Miner:
             )
 
         self.finalization_confirmations = finalization_confirmations
-        self.miner_id = str(uuid.uuid4())
+        self.miner_id = os.getenv('MINER_ID', str(uuid.uuid4()))
         
         self.stop_mining_event = threading.Event()
         self.mining_lock = threading.Lock()
@@ -100,7 +100,29 @@ class Miner:
                         self.current_mining_block_index = next_index
                         self.stop_mining_event.clear()
 
-                        txs_to_mine = self.mempool.get_transactions(2)
+                        raw_txs = self.mempool.get_transactions(2)
+                        txs_to_mine = []
+                        temp_balances = {}
+                        
+                        for tx in raw_txs:
+                            sender = tx.sender
+                            if sender not in temp_balances:
+                                temp_balances[sender] = self.blockchain.get_balance(sender)
+                            
+                            tax = tx.reward + tx.fee
+                            if temp_balances[sender] >= tax:
+                                temp_balances[sender] -= tax
+                                txs_to_mine.append(tx)
+                            else:
+                                print(f"[\u26a0\ufe0f GASTO DUPLO BARRADO] Minerador ({self.miner_id}) rejeitou Tx {tx.file_uri} por saldo insuficiente!")
+                                # Remove fisicamente da mempool com método customizado se der erro de double spend para não travar o loop
+                                if tx.generate_hash() in self.mempool.tx_map:
+                                    del self.mempool.tx_map[tx.generate_hash()]
+
+                        # Atualiza a Mempool e retira os vazios
+                        self.mempool.pool = [p for p in self.mempool.pool if p[2] in self.mempool.tx_map]
+                        import heapq
+                        heapq.heapify(self.mempool.pool)
 
                         if not txs_to_mine:
                             self.current_mining_block_index = None

@@ -70,7 +70,7 @@ class Blockchain:
         Returns:
             float: O saldo do usuário.
         """
-        balance = 0.0
+        balance = 100.0 # Saldo inicial simulado (Airdrop para contas)
 
         for block in self.chain:
             for transaction in block.transactions:
@@ -139,6 +139,19 @@ class Blockchain:
                     f"Transação: {transaction.sender} -> {transaction.receiver}"
                     f"({transaction.timestamp}) inválida"
                 )
+                
+        # Validação estrita de saldos (Prevenção de Gasto Duplo sequencial)
+        temp_balances = {}
+        for transaction in block.transactions[1:]:
+            sender = transaction.sender
+            if sender not in temp_balances:
+                temp_balances[sender] = self.get_balance(sender)
+            
+            tax = transaction.reward + transaction.fee
+            if temp_balances[sender] >= tax:
+                temp_balances[sender] -= tax
+            else:
+                raise Exception(f"Transação inválida: Gasto Duplo/Saldo insuficiente de {sender}")
 
         self.chain.append(block)
         
