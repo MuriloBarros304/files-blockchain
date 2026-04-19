@@ -109,7 +109,7 @@ def main():
         time.sleep(2)
         
     blocks = data['blocks']
-    # Filter only main chain blocks to get the actual tip
+    
     main_blocks = [b for b in blocks if b.get('is_main', False)]
     if not main_blocks:
         main_blocks = blocks  # Fallback
@@ -151,47 +151,32 @@ def main():
     target_index = latest_block['index'] + 1
     prev_hash = latest_block['hash']
 
-    num_blocks_to_mine = 3
+    num_blocks_to_mine = 2
     print(f"\nIniciando Ataque de 51% (Shadow Mining) a partir do bloco #{target_index}!")
-    print(f"Objetivo: Minerar {num_blocks_to_mine} blocos secretamente mais rápido que a rede (usando 8 cores) e liberá-los de uma vez.")
+    print(f"Objetivo: Minerar {num_blocks_to_mine} blocos secretamente e liberá-los de uma vez.")
 
     shadow_chain = []
     current_index = target_index
     current_prev_hash = prev_hash
-    current_tx = tx1  # Vamos usar a tx1 para o primeiro bloco
+    current_tx = tx1 
     
-    # Vamos gerar transações fictícias nos blocos extras para manter a estrutura
     for step in range(num_blocks_to_mine):
         print(f"\nMinerando bloco oculto {step+1}/{num_blocks_to_mine} (Índice #{current_index})...")
         
         q = Queue()
-        processes = []
-        num_workers = 8
         
-        for i in range(num_workers):
-            # args: (block_index, prev_hash, tx_dict, difficulty, miner_address, queue, result_id, nonce_start, step)
-            p = Process(target=mine_and_return, args=(current_index, current_prev_hash, current_tx, difficulty, pub_sender, q, f'W{i}', i, num_workers))
-            processes.append(p)
+        mine_and_return(current_index, current_prev_hash, current_tx, difficulty, pub_sender, q, 'W0', 0, 1)
             
-        for p in processes:
-            p.start()
-            
-        # Espera APENAS a primeira solução (o mais rápido dos 8 workers ganha)
         winner_id, block_dict = q.get()
-        print(f"Bloco #{current_index} resolvido instantaneamente pelo Worker {winner_id}! Hash: {block_dict['hash']}")
+        print(f"Bloco #{current_index} resolvido! Hash: {block_dict['hash']}")
         shadow_chain.append(block_dict)
         
-        # Mata os demais workers e limpa os recursos pois já achamos o bloco
-        for p in processes:
-            p.terminate()
-            p.join()
-            
         current_index += 1
         current_prev_hash = block_dict['hash']
-        current_tx = tx2 # Alternar a transação só para não ficar idêntico
+        current_tx = tx2
 
-    print("\nShadow mining concluído com sucesso! Cadeia secreta mais longa construída.")
-    print("Conectando ao Kafka para sobrepor a rede (Mass Broadcast)...")
+    print("\nShadow mining concluído com sucesso!")
+    print("Conectando ao Kafka para tentar sobrepor a rede")
     
     producer = KafkaProducer(
         bootstrap_servers=['localhost:9092'],
@@ -205,7 +190,6 @@ def main():
         
     producer.flush()
     print(f"\nAtaque de 51% concluído! {num_blocks_to_mine} blocos foram jogados na rede.")
-    print("A cadeia atual de mineradores honestos deverá sofrer Reorganization (descarte em massa) se for menor que 3 blocos!")
-
+    
 if __name__ == '__main__':
     main()
