@@ -101,104 +101,50 @@ Consulte `gateway/README.md` para o contrato de eventos e variáveis de ambiente
 
 ---
 
-## Como Executar o Sistema Completo
+## Como Executar o Sistema
 
-Esta seção traz um passo a passo consolidado para subir toda a stack (Broker Kafka, Gateway API, Produtor de Tráfego, múltiplos Mineradores e o Painel Frontend).
+Para simplificar a execução de todo o ecossistema (Broker Kafka, Gateway API, Produtor de Tráfego, múltiplos Mineradores e o Painel Frontend), foram criados scripts de automação `bash`.
 
-### 1. Preparação Inicial e Arquivo `.env`
+### 1. Preparação Inicial
 
-No diretório do backend (onde este arquivo está), crie e ative seu ambiente virtual (recomendado):
+No diretório do backend, crie seu ambiente virtual e instale as dependências:
 
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
-pip install -r gateway/requirements.txt
-```
-
-Atribua as variáveis de configuração primárias. Se for a primeira vez:
-```bash
 cp .env.example .env
 ```
-*(O sistema carregará o `.env` automaticamente em sua base no `miner.py` e em outros modulos via `python-dotenv`.)*
 
-### 2. Iniciando o Broker de Mensageria (Kafka)
+*(Lembre-se também de rodar `npm install` na pasta do frontend `../painel-blockchain-pow` se ainda não tiver feito).*
 
-Você precisará de um container Kafka operante para orquestrar as transações e blocos.
+### 2. Simulação Completa da Blockchain
+
+Execute o script unificado que inicializa o Kafka via Docker Compose, levanta o Gateway web, instancia **4 Mineradores** concorrentes, dispara um fluxo contínuo de transações e por fim, inicializa e abre o Frontend do Angular:
+
 ```bash
-# Via compose:
-docker-compose up -d broker
-
-# Ou fallback direto:
-docker rm -f broker >/dev/null 2>&1 || true
-docker run -d --name broker -p 9092:9092 --restart unless-stopped apache/kafka:latest
+./run_simulation.sh
 ```
 
-### 3. Rodando a Stack (Terminais Isolados)
-
-Execute cada um dos comandos abaixo em terminais separados. Sinta-se livre para ajustar `--difficulty` ou instanciar ainda mais mineradores conforme desejar avaliar simulações de "rede" e "forks".
-
-**Terminal 1: Gateway e API de Streaming**
-```bash
-PYTHONPATH=. python3 -m uvicorn gateway.main:app --host 0.0.0.0 --port 8000
-```
-
-**Terminal 2: Simulador/Produtor de Transações Contínuas**
-```bash
-PYTHONPATH=. python3 -m producer.generator
-```
-> *Nota: Você pode adicionar a flag `--seed <NUMERO>` no gerador para que a execução (remetentes, arquivos e tempo de envio) seja exatamente a mesma (Determinística) em avaliações e stress tests.*
-
-**Terminal 3: Minerador A (Janela de finalização default = 6, confira `.env`)**
-```bash
-PYTHONUNBUFFERED=1 PYTHONPATH=. MINER_ID=miner-a MINER_DIFFICULTY=5 python3 -m miner.miner
-```
-
-**Terminal 4: Minerador B**
-```bash
-PYTHONUNBUFFERED=1 PYTHONPATH=. MINER_ID=miner-b MINER_DIFFICULTY=5 python3 -m miner.miner
-```
-
-*(Sinta-se à vontade para executar Miners extras se tiver núcleos/concorrência para testes de Fork).*
-
-**Terminal 5: Frontend Angular**
-Abra o diretório do frontend e inicie a interface:
-```bash
-cd ../painel-blockchain-pow
-npm install
-npm start -- --host 0.0.0.0 --port 4200
-```
-
-Se tudo ocorreu bem, abra o navegador em `http://localhost:4200` para acompanhar a criação do grafo em tempo real e em `http://localhost:8000/docs` para visualizar a API do Gateway.
+Apenas aguarde as mensagens de status. O script abrirá o navegador automaticamente em `http://localhost:4200`. 
+**Para encerrar completamente** toda a infraestrutura e limpar os processos da memória, basta pressionar `Ctrl+C` no próprio terminal em que rodou o comando.
 
 ---
 
-## Flags Avançadas do Minerador
+## Simulações de Ataques
 
-Para sobrescrever qualquer configuração definida no `.env` globalmente, aplique as flags no processo do `miner.py`:
+Com a rede base operando perfeitamente via `run_simulation.sh`, você pode abrir um terminal secundário para injetar comportamentos maliciosos na cadeia de blocos e auditar os bloqueios pelo painel visual:
 
-* Reajuste de dificuldade:
+### Ataque de 51% (Shadow Mining)
+Simula um minerador malicioso que recusa as atualizações da rede e começa a minerar isoladamente uma "cadeia secreta". Após construir uma cadeia paralela maior e com índice mais vantajoso que o da rede honesta, ele a propaga forçando um "Reorg" profundo (Cadeia Mais Longa):
+
 ```bash
-PYTHONPATH=. python3 -m miner.miner --difficulty 4
-```
-* Customização da janela de finalização (Quantidade restrita de nós antigos até a exclusão sumária. Ajuda contra ataques de *Time Warp* global):
-```bash
-PYTHONPATH=. python3 -m miner.miner --finalization-confirmations 10
+./run_attack_51.sh
 ```
 
----
-
-## Interrompendo todos os serviços
-
-Para encerrar o Backend, Miners, Gateway, e Frontend de forma massiva sem acessar os terminais individualmente:
+### Ataque de Gasto Duplo (Double Spend)
+Tenta efetuar fraudes financeiras com a economia interna gastando os tokens de registro além do possível.
 
 ```bash
-pkill -f 'python3 -m uvicorn gateway.main:app' || true
-pkill -f 'python3 -m producer.generator' || true
-pkill -f 'python3 -m miner.miner' || true
-pkill -f 'ng serve --host 0.0.0.0 --port 4200' || true
-pkill -f 'npm start' || true
-
-# Derrube o Kafka
-docker rm -f broker >/dev/null 2>&1 || true
+./run_double_spend.sh
 ```
